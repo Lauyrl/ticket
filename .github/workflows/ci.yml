@@ -40,6 +40,10 @@ jobs:
 
       # try to build the Spring project and run tests inside the VM
       - name: Build and test
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/ticket
+          SPRING_DATASOURCE_USERNAME: ticket
+          SPRING_DATASOURCE_PASSWORD: password
         run: ./mvnw clean verify
 
       # try to build the Docker image inside the VM
