@@ -11,6 +11,21 @@ jobs:
     # create a temporary Linux VM running Ubuntu
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: ticket
+          POSTGRES_USER: ticket
+          POSTGRES_PASSWORD: 123
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ticket -d ticket"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     steps:
       # checkout/clone the repository into the VM
       - name: Checkout repository
