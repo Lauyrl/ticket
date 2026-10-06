@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    # create a temporary Linux VM running Ubuntu
+    runs-on: ubuntu-latest
+
+    steps:
+      # checkout/clone the repository into the VM
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # try to build the Spring project and run tests inside the VM
+      - name: Build and test
+        run: ./mvnw clean verify
+
+      # try to build the Docker image inside the VM
+      - name: Build Docker image
+        run: docker build -t ticket .
