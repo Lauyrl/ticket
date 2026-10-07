@@ -1,4 +1,4 @@
-package com.example.ticket.repository;
+package com.example.ticket.repository.event;
 
 import java.time.Instant;
 import java.util.List;
@@ -8,15 +8,15 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
-import com.example.ticket.entity.EventEntity;
+import com.example.ticket.entity.event.EventEntity;
 
 public interface EventRepository extends JpaRepository<EventEntity, Long> {
     
     @Query(value = """
         SELECT *
         FROM events e
-        WHERE (CAST(:search AS TEXT) IS NULL OR e.name % :search)
-        AND (CAST(:city AS TEXT) IS NULL OR e.city % :city)
+        WHERE (CAST(:search AS TEXT) IS NULL OR e.name ILIKE '%' || :search || '%')
+        AND (CAST(:city AS TEXT) IS NULL OR e.city ILIKE '%' || :city || '%')
         AND (CAST(:startsBefore AS TIMESTAMPTZ) IS NULL OR e.starts_at <= :startsBefore)
         AND (CAST(:startsAfter AS TIMESTAMPTZ) IS NULL OR e.starts_at >= :startsAfter)
         AND (CAST(:endsBefore AS TIMESTAMPTZ) IS NULL OR e.ends_at <= :endsBefore)
@@ -25,8 +25,8 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
         countQuery = """
         SELECT COUNT(*)
         FROM events e
-        WHERE (CAST(:search AS TEXT) IS NULL OR e.name % :search)
-        AND (CAST(:city AS TEXT) IS NULL OR e.city % :city)
+        WHERE (CAST(:search AS TEXT) IS NULL OR e.name ILIKE '%' || :search || '%')
+        AND (CAST(:city AS TEXT) IS NULL OR e.city ILIKE '%' || :city || '%')
         AND (CAST(:startsBefore AS TIMESTAMPTZ) IS NULL OR e.starts_at <= :startsBefore)
         AND (CAST(:startsAfter AS TIMESTAMPTZ) IS NULL OR e.starts_at >= :startsAfter)
         AND (CAST(:endsBefore AS TIMESTAMPTZ) IS NULL OR e.ends_at <= :endsBefore)

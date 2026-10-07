@@ -1,4 +1,4 @@
-package com.example.ticket.entity;
+package com.example.ticket.entity.event;
 
 import java.time.Instant;
 

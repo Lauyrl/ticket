@@ -1,8 +1,8 @@
-package com.example.ticket.dto;
+package com.example.ticket.dto.event;
 
 import java.time.Instant;
 
-import com.example.ticket.entity.EventEntity;
+import com.example.ticket.entity.event.EventEntity;
 import com.example.ticket.enums.EventStatus;
 
 public record EventResponse(
