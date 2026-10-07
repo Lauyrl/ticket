@@ -8,10 +8,24 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice 
 public class GlobalExceptionHandler {
     
-    @ExceptionHandler(EventNotFoundException.class)
-    public ResponseEntity<String> handleEventNotFound(EventNotFoundException e) {
+    @ExceptionHandler(ItemNotFoundException.class)
+    public ResponseEntity<String> handleEventNotFound(ItemNotFoundException e) {
         return ResponseEntity
             .status(HttpStatus.NOT_FOUND)
+            .body(e.getMessage());
+    }
+
+    @ExceptionHandler(SeatUnavailableException.class)
+    public ResponseEntity<String> handleSeatUnavailable(SeatUnavailableException e) {
+        return ResponseEntity
+            .status(HttpStatus.CONFLICT)
+            .body(e.getMessage());
+    }
+
+    @ExceptionHandler(SeatNotHeldByUserException.class)
+    public ResponseEntity<String> handleSeatNotHeldByUser(SeatNotHeldByUserException e) {
+        return ResponseEntity
+            .status(HttpStatus.CONFLICT)
             .body(e.getMessage());
     }
 }
