@@ -31,7 +31,8 @@ CREATE TABLE events (
     hold_duration_minutes INT          NOT NULL DEFAULT 10 CHECK (hold_duration_minutes > 0),
     created_by            BIGINT       NOT NULL, -- REFERENCES users(id) ON DELETE SET NULL,
     created_at            TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at            TIMESTAMPTZ  NOT NULL DEFAULT now()
+    updated_at            TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CHECK (ends_at > starts_at)
 );
 CREATE TRIGGER trg_events_updated BEFORE UPDATE ON events
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -62,12 +63,12 @@ CREATE INDEX idx_event_seats_zone ON event_seats (zone_id, row_index, seat_numbe
 -- one row per held seat
 -- ACTIVE    = temporarily held (valid only while expires_at > now())
 -- CONVERTED = paid, seat is sold
--- EXPIRED / RELEASED = seat is free again (refund/cancel -> RELEASED)
+-- RELEASED = seat is free again (refund/cancel/timeout -> RELEASED)
 CREATE TABLE seat_holds (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    user_id     BIGINT      NOT NULL, -- REFERENCES users(id) ON DELETE SET NULL,
+    user_id     BIGINT      , -- NOT NULL REFERENCES users(id) ON DELETE SET NULL,
     seat_id     BIGINT      NOT NULL REFERENCES event_seats(id) ON DELETE SET NULL,
-    status      VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'EXPIRED', 'RELEASED', 'CONVERTED')),
+    status      VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'RELEASED', 'CONVERTED')), --- , 'EXPIRED'
     held_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     expires_at  TIMESTAMPTZ NOT NULL,
     CHECK (expires_at > held_at)
