@@ -25,12 +25,12 @@ public interface SeatHoldRepository extends JpaRepository<SeatHoldEntity, Long> 
         UPDATE SeatHoldEntity h
         SET h.status = com.example.ticket.enums.SeatHoldStatus.RELEASED
         WHERE h.seat.id = :seatId
+          AND h.user.id = :userId
           AND h.status = com.example.ticket.enums.SeatHoldStatus.ACTIVE
           AND h.expiresAt > :now
         """)
-    //--- AND h.userId = :userId
-    int releaseActiveHold(Long seatId, Instant now); //, Long userId
-    // only check unexpired holds
+    int releaseActiveHold(Long seatId, Long userId, Instant now);
+    // only check unexpired holds of this user
     // returns number of rows affected
 
     @Query("""
@@ -38,10 +38,22 @@ public interface SeatHoldRepository extends JpaRepository<SeatHoldEntity, Long> 
         FROM SeatHoldEntity h
         JOIN FETCH h.seat s
         WHERE s.event.id = :eventId
+          AND h.user.id = :userId
           AND h.status = com.example.ticket.enums.SeatHoldStatus.ACTIVE
           AND h.expiresAt > :now
         ORDER BY h.expiresAt
         """)
-    //--- AND h.userId = :userId
-    List<SeatHoldEntity> findActiveByEventIdAndUserId(Long eventId, Instant now); //, Long userId
+    List<SeatHoldEntity> findActiveByEventIdAndUserId(Long eventId, Long userId, Instant now);
+
+    @Query("""
+        SELECT COUNT(h)
+        FROM SeatHoldEntity h
+        WHERE h.seat.event.id = :eventId
+          AND h.user.id = :userId
+          AND (
+            h.status = com.example.ticket.enums.SeatHoldStatus.CONVERTED
+            OR (h.status = com.example.ticket.enums.SeatHoldStatus.ACTIVE AND h.expiresAt > :now)
+          )
+        """)
+    long countHeldOrPurchasedSeatsByUser(Long eventId, Long userId, Instant now);
 }
