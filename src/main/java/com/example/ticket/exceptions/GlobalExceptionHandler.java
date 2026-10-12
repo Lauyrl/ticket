@@ -43,6 +43,27 @@ public class GlobalExceptionHandler {
             .body(e.getMessage());
     }
 
+    @ExceptionHandler(HoldExpiredException.class)
+    public ResponseEntity<String> handleHoldExpired(HoldExpiredException e) {
+        return ResponseEntity
+            .status(HttpStatus.BAD_REQUEST)
+            .body(e.getMessage());
+    }
+
+    @ExceptionHandler(OrderAlreadyExistsException.class)
+    public ResponseEntity<String> handleOrderAlreadyExists(OrderAlreadyExistsException e) {
+        return ResponseEntity
+            .status(HttpStatus.CONFLICT)
+            .body(e.getMessage());
+    }
+
+    @ExceptionHandler(OrderNotPendingException.class)
+    public ResponseEntity<String> handleOrderNotPending(OrderNotPendingException e) {
+        return ResponseEntity
+            .status(HttpStatus.BAD_REQUEST)
+            .body(e.getMessage());
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<String> handleIllegalArgument(IllegalArgumentException e) {
         return ResponseEntity
