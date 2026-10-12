@@ -55,25 +55,48 @@ public class EventController {
     }
 
     @GetMapping("/api/v1/events/{eventId}/seats")
-    public List<SeatZoneResponse> getSeatsByEvent(@PathVariable Long eventId) {
-        List<SeatZoneResponse> response = eventService.getSeatsByEvent(eventId);
+    public List<SeatZoneResponse> getSeatsByEvent(
+        @PathVariable Long eventId,
+        @org.springframework.security.core.annotation.AuthenticationPrincipal com.example.ticket.security.UserPrincipal currentUser
+    ) {
+        Long userId = currentUser != null ? currentUser.getId() : null;
+        List<SeatZoneResponse> response = eventService.getSeatsByEvent(eventId, userId);
         return response;
     }
 
     @PostMapping("/api/v1/events/{eventId}/seats/{seatId}/hold")
-    public SeatHoldResponse holdSeat(@PathVariable Long eventId, @PathVariable Long seatId) {
-        return eventService.holdSeat(eventId, seatId);
+    public SeatHoldResponse holdSeat(
+        @PathVariable Long eventId,
+        @PathVariable Long seatId,
+        @org.springframework.security.core.annotation.AuthenticationPrincipal com.example.ticket.security.UserPrincipal currentUser
+    ) {
+        return eventService.holdSeat(eventId, seatId, currentUser.getId());
     }
 
     @DeleteMapping("/api/v1/events/{eventId}/seats/{seatId}/hold")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void releaseSeat(@PathVariable Long eventId, @PathVariable Long seatId) {
-        eventService.releaseSeat(eventId, seatId);   // add userId once auth exists
+    public void releaseSeat(
+        @PathVariable Long eventId,
+        @PathVariable Long seatId,
+        @org.springframework.security.core.annotation.AuthenticationPrincipal com.example.ticket.security.UserPrincipal currentUser
+    ) {
+        eventService.releaseSeat(eventId, seatId, currentUser.getId());
     }
 
     @GetMapping("/api/v1/events/{eventId}/holds")
-    public List<SeatHoldResponse> getUserSeatHolds(@PathVariable Long eventId) {
-        List<SeatHoldResponse> response = eventService.getUserSeatHolds(eventId);
+    public List<SeatHoldResponse> getUserSeatHolds(
+        @PathVariable Long eventId,
+        @org.springframework.security.core.annotation.AuthenticationPrincipal com.example.ticket.security.UserPrincipal currentUser
+    ) {
+        List<SeatHoldResponse> response = eventService.getUserSeatHolds(eventId, currentUser.getId());
         return response;
+    }
+
+    @GetMapping("/api/v1/holds/active")
+    public List<SeatHoldResponse> getActiveHolds(
+        @RequestParam Long eventId,
+        @org.springframework.security.core.annotation.AuthenticationPrincipal com.example.ticket.security.UserPrincipal currentUser
+    ) {
+        return eventService.getUserSeatHolds(eventId, currentUser.getId());
     }
 }

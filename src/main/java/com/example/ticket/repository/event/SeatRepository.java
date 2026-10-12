@@ -23,10 +23,10 @@ public interface SeatRepository extends JpaRepository<SeatEntity, Long> {
             s.row_index AS rowIndex, 
             s.seat_number AS seatNumber,
             CASE 
-                WHEN h.status = 'CONVERTED'   THEN 'SOLD'
-                --- WHEN h.user_id = :userId  THEN 'HELD_BY_ME'
-                WHEN h.id IS NOT NULL         THEN 'HELD'
-                ELSE                               'AVAILABLE'
+                WHEN h.status = 'CONVERTED'                       THEN 'SOLD'
+                WHEN h.user_id IS NOT NULL AND h.user_id = :userId THEN 'HELD_BY_ME'
+                WHEN h.id IS NOT NULL                             THEN 'HELD'
+                ELSE                                                   'AVAILABLE'
             END AS status
         FROM event_seats s
         LEFT JOIN seat_holds h ON h.seat_id = s.id
@@ -38,7 +38,7 @@ public interface SeatRepository extends JpaRepository<SeatEntity, Long> {
         WHERE s.event_id = :eventId
         ORDER BY s.zone_id, s.row_index, s.seat_number
         """, nativeQuery = true)
-    List<SeatWithStatusObject> findSeatsWithStatusByEventId(Long eventId); //, @Param("userId") Long userId
+    List<SeatWithStatusObject> findSeatsWithStatusByEventId(@Param("eventId") Long eventId, @Param("userId") Long userId);
     // Spring Data can make proxy objects at runtime that implement SeatWithStatusObject
     // proxy object getters must match column aliases
 }

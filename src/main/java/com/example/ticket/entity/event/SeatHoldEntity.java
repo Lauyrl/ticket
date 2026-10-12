@@ -2,6 +2,7 @@ package com.example.ticket.entity.event;
 
 import java.time.Instant;
 
+import com.example.ticket.entity.user.UserEntity;
 import com.example.ticket.enums.SeatHoldStatus;
 
 import jakarta.persistence.Column;
@@ -37,8 +38,9 @@ public class SeatHoldEntity {
     );
     CREATE UNIQUE INDEX ux_seat_holds_taken_seat ON seat_holds (seat_id) WHERE status IN ('ACTIVE', 'CONVERTED');
     */
-    public SeatHoldEntity(SeatEntity seat, Instant expiresAt) { //, Long userId
+    public SeatHoldEntity(SeatEntity seat, UserEntity user, Instant expiresAt) {
         this.seat = seat;
+        this.user = user;
         this.status = SeatHoldStatus.ACTIVE; // ACTIVE by default upon creation
         this.expiresAt = expiresAt;
     }
@@ -47,10 +49,9 @@ public class SeatHoldEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // TODO: add when UserEntity exists
-    // @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    // @JoinColumn(name = "user_id", nullable = true)
-    // private UserEntity user;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private com.example.ticket.entity.user.UserEntity user;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "seat_id", nullable = true)

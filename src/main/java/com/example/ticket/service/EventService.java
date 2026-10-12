@@ -43,6 +43,7 @@ public class EventService {
     private final SeatZoneRepository seatZoneRepository;
     private final SeatRepository seatRepository;
     private final SeatHoldRepository seatHoldRepository;
+    private final com.example.ticket.repository.user.UserRepository userRepository;
 
     public Page<EventResponse> getEvents(String search, String city, Instant startsAfter, Instant startsBefore, Instant endsAfter, Instant endsBefore, int page) {
         Pageable pageable = PageRequest.of(page, PG_LEN);
@@ -63,11 +64,11 @@ public class EventService {
         return suggestedEvents.stream().map(EventResponse::new).toList();
     }
 
-    public List<SeatZoneResponse> getSeatsByEvent(Long eventId) {
+    public List<SeatZoneResponse> getSeatsByEvent(Long eventId, Long userId) {
         List<SeatZoneEntity> zones = seatZoneRepository.findByEventId(eventId);
 
         Map<Long, List<SeatWithStatusObject>> seatsByZone = seatRepository
-                .findSeatsWithStatusByEventId(eventId).stream()
+                .findSeatsWithStatusByEventId(eventId, userId).stream()
                 .collect(Collectors.groupingBy(seat -> seat.getZoneId()));
 
         return zones.stream()
@@ -82,25 +83,32 @@ public class EventService {
     }
 
     @Transactional // non-readOnly
-    public SeatHoldResponse holdSeat(Long eventId, Long seatId) { // , Long userId
+    public SeatHoldResponse holdSeat(Long eventId, Long seatId, Long userId) {
         EventEntity event = eventRepository.findById(eventId).orElseThrow(() -> new EventNotFoundException(eventId));
         SeatEntity seat = seatRepository.findById(seatId).orElseThrow(() -> new SeatNotFoundException(seatId));
+        com.example.ticket.entity.user.UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
 
         // the DB can't check if the seat actually belongs to this event, so check here
         if (!seat.getEvent().getId().equals(eventId)) {
             throw new SeatNotFoundException(seatId);
         }
 
-        // TODO: seat cap if ACTIVE or CONVERTED holds for this user in this event >= event.getMaxSeatsPerUser()
+        Instant now = Instant.now(); // snapshot now()
 
-        Instant now = Instant.now(); //  snapshot now()
+        // seat cap: check if ACTIVE or CONVERTED holds for this user in this event >= event.getMaxSeatsPerUser()
+        long heldCount = seatHoldRepository.countHeldOrPurchasedSeatsByUser(eventId, userId, now);
+        if (heldCount >= event.getMaxSeatsPerUser()) {
+            throw new com.example.ticket.exceptions.MaxSeatsExceededException(event.getMaxSeatsPerUser());
+        }
+
         // expire stale ACTIVE holds via lazy check
         seatHoldRepository.expireStaleHolds(seatId, now);
 
         SeatHoldEntity hold = new SeatHoldEntity(
             seat,
+            user,
             now.plus(Duration.ofMinutes(event.getHoldDurationMinutes()))
-            //, currentUserId
         );
 
         try {
@@ -115,7 +123,7 @@ public class EventService {
     }
 
     @Transactional // non-readOnly
-    public void releaseSeat(Long eventId, Long seatId) { // , Long userId
+    public void releaseSeat(Long eventId, Long seatId, Long userId) {
         SeatEntity seat = seatRepository.findById(seatId).orElseThrow(() -> new SeatNotFoundException(seatId));
 
         // the DB can't check if the seat actually belongs to this event, so check here
@@ -123,14 +131,14 @@ public class EventService {
             throw new SeatNotFoundException(seatId);
         }
 
-        int released = seatHoldRepository.releaseActiveHold(seatId, Instant.now()); // userId
+        int released = seatHoldRepository.releaseActiveHold(seatId, userId, Instant.now());
         if (released == 0) {
             throw new SeatNotHeldByUserException(seatId);   // currentUser has no active hold on this seat
         }
     }
 
-    public List<SeatHoldResponse> getUserSeatHolds(Long eventId) { //, Long userId
-        List<SeatHoldEntity> holds = seatHoldRepository.findActiveByEventIdAndUserId(eventId, Instant.now());
+    public List<SeatHoldResponse> getUserSeatHolds(Long eventId, Long userId) {
+        List<SeatHoldEntity> holds = seatHoldRepository.findActiveByEventIdAndUserId(eventId, userId, Instant.now());
 
         return holds.stream()
             .map(SeatHoldResponse::new)
