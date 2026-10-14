@@ -1,4 +1,3 @@
-
 package com.example.ticket.service;
 
 import org.springframework.data.domain.Page;
@@ -7,6 +6,7 @@ import org.springframework.stereotype.Service;
 
 import com.example.ticket.entity.ticket.TicketEntity;
 import com.example.ticket.enums.TicketStatus;
+import com.example.ticket.exceptions.ItemNotFoundException;
 import com.example.ticket.repository.ticket.TicketRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -28,5 +28,23 @@ public class TicketService {
         }
 
         return ticketRepository.findByUserId(userId, pageable);
+    }
+
+    public Page<TicketEntity> getMyTicketsByEvent(
+            Long userId,
+            Long eventId,
+            Pageable pageable) {
+
+        return ticketRepository.findByUserIdAndEventId(
+                userId, eventId, pageable);
+    }
+
+    public TicketEntity getMyTicketById(
+            Long ticketId,
+            Long userId) {
+
+        return ticketRepository.findByIdAndUserId(ticketId, userId)
+                .orElseThrow(() ->
+                        new ItemNotFoundException("Ticket not found"));
     }
 }

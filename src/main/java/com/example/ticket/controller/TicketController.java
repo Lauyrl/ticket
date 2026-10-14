@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PathVariable;
 
 import com.example.ticket.entity.ticket.TicketEntity;
 import com.example.ticket.enums.TicketStatus;
@@ -41,5 +42,30 @@ public class TicketController {
                 currentUser.getId(),
                 status,
                 pageable);
+    }
+
+    @GetMapping("/my/events/{eventId}")
+    public Page<TicketEntity> getMyTicketsByEvent(
+            @AuthenticationPrincipal UserPrincipal currentUser,
+            @PathVariable Long eventId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        Pageable pageable = PageRequest.of(
+                page, size,
+                Sort.by(Sort.Direction.DESC, "issuedAt"));
+
+        return ticketService.getMyTicketsByEvent(
+                currentUser.getId(), eventId, pageable);
+    }
+
+    @GetMapping("/{ticketId}")
+    public TicketEntity getMyTicketById(
+            @AuthenticationPrincipal UserPrincipal currentUser,
+            @PathVariable Long ticketId) {
+
+        return ticketService.getMyTicketById(
+                ticketId,
+                currentUser.getId());
     }
 }
