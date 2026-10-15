@@ -1,11 +1,31 @@
 ## Overview
 
-REST API dùng để đặt vé sự kiện.
+Hệ thống đặt vé sự kiện trực tuyến gồm 2 tác nhân. **Khách hàng** tìm kiếm sự kiện, chọn ghế và mua vé tham dự các sự kiện. **Quản trị viên** tạo và quản lý sự kiện, khu vực ghế, đơn hàng và phân tích doanh thu theo thời gian thực.
 
-Tính năng: xác thực, tìm kiếm sự kiện, seat zone, giữ ghế tạm thời, đặt vé, quản lý vé.
+### Nghiệp vụ cốt lõi
+
+**Luồng đặt vé của khách hàng:**
+1. **Xác thực** — Người dùng đăng ký hoặc đăng nhập bằng email-password. Sau khi xác thực, `userId` luôn được lấy từ JWT token, không nhận từ client.
+2. **Tìm kiếm sự kiện** — Người dùng tìm kiếm sự kiện công khai với thanh tìm kiếm và bộ lọc (danh mục, thành phố, ngày). Các sự kiện được hiển thị dưới dạng phân trang. Trang chủ hiển thị sự kiện nổi bật, thanh tìm kiếm hỗ trợ gợi ý từ khóa theo thời gian thực.
+3. **Chọn ghế (Seat Hold)** — Sau khi chọn sự kiện, người dùng xem sơ đồ ghế (nhóm theo zone → row → seat) và giữ ghế tạm thời (`SeatHold`). Mỗi ghế chỉ cho phép **1 hold ACTIVE hoặc CONVERTED** tại một thời điểm (đảm bảo bằng UNIQUE INDEX trong DB, chống race condition bằng `SELECT FOR UPDATE`). Hold tự động hết hạn sau thời gian `holdDurationMinutes` của sự kiện (khoảng 5 phút); khi có người hold mới thì lazy-check và release hold cũ.
+4. **Tạo đơn hàng (Order)** — Người dùng xác nhận giỏ hàng, hệ thống tạo `Order` từ `SeatHold` đang ACTIVE. Đơn hàng ở trạng thái `PENDING` và cũng có thời hạn thanh toán (khoảng 10 phút).
+5. **Thanh toán giả lập (Checkout)** — Người dùng xác nhận thanh toán, hệ thống chuyển Order sang `PAID`, sinh `Ticket` kèm mã QR cho từng ghế.
+6. **Quản lý vé** — Người dùng xem danh sách vé của mình, chi tiết từng vé (bao gồm QR code để check-in tại sự kiện).
+
+**Nghiệp vụ Admin:**
+- Tạo và quản lý sự kiện (thông tin, hình ảnh, danh mục, trạng thái vòng đời: `DRAFT` → `ON_SALE` → `CANCELLED`/`COMPLETED`).
+- Thiết kế sơ đồ ghế: tạo seat zone với tên, màu sắc, giá vé, số hàng và số ghế mỗi hàng. Hệ thống tự động sinh ghế.
+- Quản lý đơn hàng toàn hệ thống: xem, lọc, cập nhật trạng thái.
+- Xem dashboard analytics theo từng sự kiện: doanh thu, tỷ lệ lấp đầy (fill rate), phân bổ theo độ tuổi và giới tính.
+- Upload ảnh cho sự kiện.
+
+**Thông báo & Real-time:**
+- Người dùng nhận thông báo trong ứng dụng đối với các sự kiện như: đặt vé thành công, hủy đơn, sự kiện sắp diễn ra.
+- Hệ thống sử dụng **WebSocket (STOMP over SockJS)** để đẩy cập nhật real-time: trạng thái ghế, đơn hàng mới, analytics dashboard — không polling.
 
 **Notes:**
-- `userId` luôn lấy từ token xác thực
+- `userId` luôn lấy từ token xác thực, không nhận từ request body/query
+- Trạng thái ghế được suy ra lazy từ bảng `seat_holds`, không lưu trực tiếp trên `event_seats`
 
 # Endpoints
 
@@ -95,6 +115,109 @@ Tính năng: xác thực, tìm kiếm sự kiện, seat zone, giữ ghế tạm 
 
 <br>
 
+## Notifications
+
+| Method | Endpoint | Mô tả | Auth | Query params |
+|--------|----------|-------|------|--------------|
+| `GET` | `/api/v1/notifications` | Danh sách thông báo (pagination) | Authenticated | `page`: (default: 0)<br>`size`: page size (default: 10) |
+| `GET` | `/api/v1/notifications/unread-count` | Số lượng thông báo chưa đọc | Authenticated | — |
+| `PATCH` | `/api/v1/notifications/{notificationId}/read` | Đánh dấu một thông báo đã đọc | Authenticated | — |
+| `PATCH` | `/api/v1/notifications/read-all` | Đánh dấu tất cả thông báo đã đọc | Authenticated | — |
+| `DELETE` | `/api/v1/notifications/{notificationId}` | Xóa một thông báo | Authenticated | — |
+| `DELETE` | `/api/v1/notifications` | Xóa các thông báo được chọn | Authenticated | `ids`: danh sách id cách nhau bởi dấu phẩy (vd: `1,2,3`) |
+| `DELETE` | `/api/v1/notifications/all` | Xóa tất cả thông báo của user hiện tại | Authenticated | — |
+
+**Notes:**
+- Thông báo được tạo tự động bởi hệ thống khi có các sự kiện nghiệp vụ: đặt vé thành công, hủy đơn, sự kiện sắp diễn ra, v.v.
+- Thông báo mới được đẩy real-time qua WebSocket topic `/topic/notifications/users/{userId}` — không polling.
+- `PATCH .../read` và `PATCH .../read-all`: Trả về `200 OK` kèm số lượng thông báo vừa được đánh dấu
+- `DELETE /api/v1/notifications`: Query param `ids` bắt buộc; trả về `204 No Content`
+
+<br>
+
+## Admin
+
+> Tất cả endpoint `/api/v1/admin/**` yêu cầu role **Admin**.
+
+### Admin — Events
+
+| Method | Endpoint | Mô tả | Query params |
+|--------|----------|-------|--------------|
+| `GET` | `/api/v1/admin/events` | Danh sách tất cả sự kiện (search, filter, pagination) | `search`: tìm theo tên<br>`status`: lọc theo trạng thái<br>`page`: (default: 0)<br>`size`: page size (default: 12) |
+| `POST` | `/api/v1/admin/events` | Tạo sự kiện mới | — |
+| `POST` | `/api/v1/admin/events/with-seat-zones` | Tạo sự kiện kèm seat zones trong một request | — |
+| `GET` | `/api/v1/admin/events/{eventId}` | Chi tiết sự kiện | — |
+| `PATCH` | `/api/v1/admin/events/{eventId}` | Cập nhật thông tin sự kiện | — |
+| `PATCH` | `/api/v1/admin/events/{eventId}/status` | Thay đổi trạng thái vòng đời sự kiện | `status`: giá trị mới (vd: `ON_SALE`, `CANCELLED`) |
+| `DELETE` | `/api/v1/admin/events/{eventId}` | Xóa sự kiện | — |
+
+**Notes:**
+- `POST /api/v1/admin/events/with-seat-zones`: Tạo sự kiện và toàn bộ seat zone trong một transaction; thuận tiện khi setup sự kiện hoàn chỉnh ngay từ đầu
+- `PATCH .../status`: Vòng đời hợp lệ: `DRAFT` → `ON_SALE` → `COMPLETED` / `CANCELLED`. Chuyển trạng thái không hợp lệ → `400`
+
+### Admin — Seat Zones
+
+| Method | Endpoint | Mô tả | Query params |
+|--------|----------|-------|--------------|
+| `GET` | `/api/v1/admin/events/{eventId}/seat-zones` | Danh sách seat zones của sự kiện | — |
+| `GET` | `/api/v1/admin/events/{eventId}/seat-map` | Sơ đồ ghế đầy đủ (admin view: tất cả trạng thái) | — |
+| `POST` | `/api/v1/admin/events/{eventId}/seat-zones` | Tạo hoặc cập nhật seat zones của sự kiện | — |
+
+**Notes:**
+- `POST .../seat-zones`: Body nhận danh sách zone; mỗi zone gồm tên, màu sắc, giá vé, số hàng (`rows`), số ghế mỗi hàng (`seatsPerRow`). Hệ thống tự động sinh bản ghi ghế tương ứng.
+- `GET .../seat-map` (admin): Trả về toàn bộ trạng thái ghế bao gồm cả HELD và SOLD — khác với endpoint public chỉ trả về trạng thái có thể chọn
+
+### Admin — Orders
+
+| Method | Endpoint | Mô tả | Query params |
+|--------|----------|-------|--------------|
+| `GET` | `/api/v1/admin/orders` | Danh sách đơn hàng toàn hệ thống (search, filter, pagination) | `eventId`: lọc theo sự kiện<br>`status`: lọc theo trạng thái<br>`search`: tìm theo tên/email khách<br>`page`: (default: 0)<br>`size`: page size (default: 10) |
+| `GET` | `/api/v1/admin/orders/{orderId}` | Chi tiết một đơn hàng bất kỳ | — |
+| `PATCH` | `/api/v1/admin/orders/{orderId}/status` | Cập nhật trạng thái đơn hàng | `status`: trạng thái mới (vd: `CANCELLED`) |
+
+**Notes:**
+- `GET /api/v1/admin/orders`: Sắp xếp theo `createdAt` giảm dần.
+- `GET /api/v1/admin/orders/{orderId}`: Đơn hàng không tồn tại → `404`
+
+### Admin — Dashboard & Analytics
+
+| Method | Endpoint | Mô tả | Query params |
+|--------|----------|-------|--------------|
+| `GET` | `/api/v1/admin/dashboard/{eventId}` | Analytics của sự kiện: doanh thu, fill rate, phân bổ độ tuổi/giới tính | — |
+
+**Notes:**
+- Dashboard cũng nhận cập nhật tự động qua WebSocket topic `/topic/admin/dashboard/{eventId}` khi có đơn hàng mới
+
+### Admin — Upload
+
+| Method | Endpoint | Mô tả | Query params |
+|--------|----------|-------|--------------|
+| `POST` | `/api/v1/admin/upload` | Upload ảnh sự kiện (`multipart/form-data`), trả về URL | — |
+
+<br>
+
+## WebSocket (STOMP over SockJS)
+
+> **Endpoint kết nối:** `ws://localhost:8080/ws`  
+> **Protocol:** STOMP, SockJS fallback  
+> Client subscribe vào topic để nhận cập nhật real-time; không cần polling REST.
+
+| Topic | Mô tả | Dành cho |
+|-------|-------|----------|
+| `/topic/seats/{eventId}` | Cập nhật trạng thái ghế real-time (HELD / AVAILABLE / SOLD) | Frontend — trang chọn ghế |
+| `/topic/admin/seats/{eventId}` | Cập nhật ghế real-time (admin view, đầy đủ trạng thái) | Admin — trang quản lý ghế |
+| `/topic/admin/orders/{eventId}` | Đơn hàng mới / cập nhật trạng thái theo sự kiện | Admin — trang quản lý đơn hàng |
+| `/topic/admin/orders/global` | Tất cả đơn hàng toàn hệ thống | Admin dashboard tổng quan |
+| `/topic/admin/dashboard/{eventId}` | Cập nhật analytics dashboard tự động khi có giao dịch mới | Admin dashboard |
+| `/topic/events` | Cập nhật danh sách sự kiện (sự kiện mới, thay đổi trạng thái) | Frontend — trang chủ |
+| `/topic/notifications/users/{userId}` | Thông báo real-time của người dùng cụ thể | Frontend — notification bell |
+
+**Notes:**
+- Client cần authenticate trước khi subscribe vào các topic user-specific (vd: `/topic/notifications/users/{userId}`)
+- Payload của mỗi message là JSON tương ứng với entity được cập nhật (SeatDto, OrderDto, NotificationDto, v.v.)
+
+<br>
+
 ## EXAMPLE
 | Method | Endpoint | Mô tả | Auth | Query params |
 |--------|----------|-------|------|--------------|
@@ -125,4 +248,7 @@ docker compose up
 
 <br>
 
-## Tài liệu OpenAPI: http://localhost:8080/swagger-ui/index.html
+## Tài liệu OpenAPI
+- **Swagger UI (Interactive):** `http://localhost:8080/swagger-ui/index.html` (truy cập khi server đang chạy)
+- **JSON API Docs:** `http://localhost:8080/v3/api-docs`
+- **File đặc tả tĩnh (Static Spec):** `openapi.yaml` tại thư mục gốc (có thể import vào Postman, Insomnia hoặc Swagger Editor)
