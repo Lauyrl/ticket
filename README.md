@@ -13,15 +13,12 @@ Hệ thống đặt vé sự kiện trực tuyến gồm 2 tác nhân. **Khách 
 6. **Quản lý vé** - Người dùng xem danh sách vé của mình, chi tiết từng vé (bao gồm QR code để check-in tại sự kiện).
 
 **Nghiệp vụ Admin:**
-- Tạo và quản lý sự kiện (thông tin, hình ảnh, danh mục, trạng thái vòng đời: `DRAFT` → `ON_SALE` → `CANCELLED`/`COMPLETED`).
+- Tạo và quản lý sự kiện (thông tin, danh mục, trạng thái vòng đời: `DRAFT` → `ON_SALE` → `CANCELLED`/`COMPLETED`).
 - Thiết kế sơ đồ ghế: tạo seat zone với tên, màu sắc, giá vé, số hàng và số ghế mỗi hàng. Hệ thống tự động sinh ghế.
 - Quản lý đơn hàng toàn hệ thống: xem, lọc, cập nhật trạng thái.
-- Xem dashboard analytics theo từng sự kiện: doanh thu, tỷ lệ lấp đầy (fill rate), phân bổ theo độ tuổi và giới tính.
-- Upload ảnh cho sự kiện.
 
-**Thông báo & Real-time:**
+**Thông báo:**
 - Người dùng nhận thông báo trong ứng dụng đối với các sự kiện như: đặt vé thành công, hủy đơn, sự kiện sắp diễn ra.
-- Hệ thống sử dụng **WebSocket (STOMP over SockJS)** để đẩy cập nhật real-time: trạng thái ghế, đơn hàng mới, analytics dashboard.
 
 **Notes:**
 - `userId` luôn lấy từ token xác thực, không nhận từ request body/query
@@ -46,7 +43,6 @@ Hệ thống đặt vé sự kiện trực tuyến gồm 2 tác nhân. **Khách 
 - `POST /api/v1/auth/refresh`: Refresh token không hợp lệ hoặc hết hạn → `401 Unauthorized`
 - `POST /api/v1/auth/logout`: Browser tự xóa token ở local. Endpoint chỉ trả về thông báo thành công, chưa vô hiệu hóa token
 - `GET /api/v1/auth/me`: Trả về thông tin tài khoản đang đăng nhập; user không xác thực → lỗi xác thực
-- `POST /api/v1/auth/seed-admin`: Endpoint hiện đang public và có thể cấp token cho tài khoản đã tồn tại với email được gửi lên; cần bảo vệ hoặc vô hiệu hóa sau khi tạo admin ban đầu
 
 <br>
 
@@ -176,47 +172,7 @@ Hệ thống đặt vé sự kiện trực tuyến gồm 2 tác nhân. **Khách 
 | `PATCH` | `/api/v1/admin/orders/{orderId}/status` | Cập nhật trạng thái đơn hàng | `status`: trạng thái mới (vd: `CANCELLED`) |
 
 **Notes:**
-- `GET /api/v1/admin/orders`: Sắp xếp theo `createdAt` giảm dần.
-- `GET /api/v1/admin/orders/{orderId}`: Đơn hàng không tồn tại → `404`
-
-### Admin — Dashboard & Analytics
-
-| Method | Endpoint | Mô tả | Query params |
-|--------|----------|-------|--------------|
-| `GET` | `/api/v1/admin/dashboard/{eventId}` | Analytics của sự kiện: doanh thu, fill rate, phân bổ độ tuổi/giới tính | — |
-
-**Notes:**
 - Dashboard cũng nhận cập nhật tự động qua WebSocket topic `/topic/admin/dashboard/{eventId}` khi có đơn hàng mới
-
-### Admin — Upload
-
-| Method | Endpoint | Mô tả | Query params |
-|--------|----------|-------|--------------|
-| `POST` | `/api/v1/admin/upload` | Upload ảnh sự kiện (`multipart/form-data`), trả về URL | — |
-
-<br>
-
-## WebSocket (STOMP over SockJS)
-
-> **Endpoint kết nối:** `ws://localhost:8080/ws`  
-> **Protocol:** STOMP, SockJS fallback  
-> Client subscribe vào topic để nhận cập nhật real-time; không cần polling REST.
-
-| Topic | Mô tả | Dành cho |
-|-------|-------|----------|
-| `/topic/seats/{eventId}` | Cập nhật trạng thái ghế real-time (HELD / AVAILABLE / SOLD) | Frontend — trang chọn ghế |
-| `/topic/admin/seats/{eventId}` | Cập nhật ghế real-time (admin view, đầy đủ trạng thái) | Admin — trang quản lý ghế |
-| `/topic/admin/orders/{eventId}` | Đơn hàng mới / cập nhật trạng thái theo sự kiện | Admin — trang quản lý đơn hàng |
-| `/topic/admin/orders/global` | Tất cả đơn hàng toàn hệ thống | Admin dashboard tổng quan |
-| `/topic/admin/dashboard/{eventId}` | Cập nhật analytics dashboard tự động khi có giao dịch mới | Admin dashboard |
-| `/topic/events` | Cập nhật danh sách sự kiện (sự kiện mới, thay đổi trạng thái) | Frontend — trang chủ |
-| `/topic/notifications/users/{userId}` | Thông báo real-time của người dùng cụ thể | Frontend — notification bell |
-
-**Notes:**
-- Client cần authenticate trước khi subscribe vào các topic user-specific (vd: `/topic/notifications/users/{userId}`)
-- Payload của mỗi message là JSON tương ứng với entity được cập nhật (SeatDto, OrderDto, NotificationDto, v.v.)
-
-<br>
 
 ## EXAMPLE
 | Method | Endpoint | Mô tả | Auth | Query params |
