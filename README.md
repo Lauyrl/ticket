@@ -5,27 +5,24 @@ Hệ thống đặt vé sự kiện trực tuyến gồm 2 tác nhân. **Khách 
 ### Nghiệp vụ cốt lõi
 
 **Luồng đặt vé của khách hàng:**
-1. **Xác thực** — Người dùng đăng ký hoặc đăng nhập bằng email-password. Sau khi xác thực, `userId` luôn được lấy từ JWT token, không nhận từ client.
-2. **Tìm kiếm sự kiện** — Người dùng tìm kiếm sự kiện công khai với thanh tìm kiếm và bộ lọc (danh mục, thành phố, ngày). Các sự kiện được hiển thị dưới dạng phân trang. Trang chủ hiển thị sự kiện nổi bật, thanh tìm kiếm hỗ trợ gợi ý từ khóa theo thời gian thực.
-3. **Chọn ghế (Seat Hold)** — Sau khi chọn sự kiện, người dùng xem sơ đồ ghế (nhóm theo zone → row → seat) và giữ ghế tạm thời (`SeatHold`). Mỗi ghế chỉ cho phép **1 hold ACTIVE hoặc CONVERTED** tại một thời điểm (đảm bảo bằng UNIQUE INDEX trong DB, chống race condition bằng `SELECT FOR UPDATE`). Hold tự động hết hạn sau thời gian `holdDurationMinutes` của sự kiện (khoảng 5 phút); khi có người hold mới thì lazy-check và release hold cũ.
-4. **Tạo đơn hàng (Order)** — Người dùng xác nhận giỏ hàng, hệ thống tạo `Order` từ `SeatHold` đang ACTIVE. Đơn hàng ở trạng thái `PENDING` và cũng có thời hạn thanh toán (khoảng 10 phút).
-5. **Thanh toán giả lập (Checkout)** — Người dùng xác nhận thanh toán, hệ thống chuyển Order sang `PAID`, sinh `Ticket` kèm mã QR cho từng ghế.
-6. **Quản lý vé** — Người dùng xem danh sách vé của mình, chi tiết từng vé (bao gồm QR code để check-in tại sự kiện).
+1. **Xác thực** - Người dùng đăng ký hoặc đăng nhập bằng email-password. Sau khi xác thực, `userId` luôn được lấy từ JWT token, không nhận từ client.
+2. **Tìm kiếm sự kiện** - Người dùng tìm kiếm sự kiện công khai với thanh tìm kiếm và bộ lọc (danh mục, thành phố, ngày). Các sự kiện được hiển thị dưới dạng phân trang. Trang chủ hiển thị sự kiện nổi bật, thanh tìm kiếm hỗ trợ gợi ý từ khóa theo thời gian thực.
+3. **Chọn ghế (Seat Hold)** - Sau khi chọn sự kiện, người dùng xem sơ đồ ghế (nhóm theo zone → row → seat) và giữ ghế tạm thời (`SeatHold`). Mỗi ghế chỉ cho phép 1 hold ACTIVE hoặc CONVERTED tại một thời điểm (đảm bảo bằng UNIQUE INDEX trong DB, chống race condition bằng `SELECT FOR UPDATE`). Hold tự động hết hạn sau thời gian `holdDurationMinutes` của sự kiện (khoảng 5 phút); khi có người hold mới thì lazy-check và release hold cũ.
+4. **Tạo đơn hàng (Order)** - Người dùng xác nhận giỏ hàng, hệ thống tạo `Order` từ `SeatHold` đang ACTIVE. Đơn hàng ở trạng thái `PENDING` và cũng có thời hạn thanh toán (khoảng 10 phút).
+5. **Thanh toán giả lập (Checkout)** - Người dùng xác nhận thanh toán, hệ thống chuyển Order sang `PAID`, sinh `Ticket` kèm mã QR cho từng ghế.
+6. **Quản lý vé** - Người dùng xem danh sách vé của mình, chi tiết từng vé (bao gồm QR code để check-in tại sự kiện).
 
 **Nghiệp vụ Admin:**
-- Tạo và quản lý sự kiện (thông tin, hình ảnh, danh mục, trạng thái vòng đời: `DRAFT` → `ON_SALE` → `CANCELLED`/`COMPLETED`).
+- Tạo và quản lý sự kiện (thông tin, danh mục, trạng thái vòng đời: `DRAFT` → `ON_SALE` → `CANCELLED`/`COMPLETED`).
 - Thiết kế sơ đồ ghế: tạo seat zone với tên, màu sắc, giá vé, số hàng và số ghế mỗi hàng. Hệ thống tự động sinh ghế.
 - Quản lý đơn hàng toàn hệ thống: xem, lọc, cập nhật trạng thái.
-- Xem dashboard analytics theo từng sự kiện: doanh thu, tỷ lệ lấp đầy (fill rate), phân bổ theo độ tuổi và giới tính.
-- Upload ảnh cho sự kiện.
 
-**Thông báo & Real-time:**
+**Thông báo:**
 - Người dùng nhận thông báo trong ứng dụng đối với các sự kiện như: đặt vé thành công, hủy đơn, sự kiện sắp diễn ra.
-- Hệ thống sử dụng **WebSocket (STOMP over SockJS)** để đẩy cập nhật real-time: trạng thái ghế, đơn hàng mới, analytics dashboard — không polling.
 
 **Notes:**
 - `userId` luôn lấy từ token xác thực, không nhận từ request body/query
-- Trạng thái ghế được suy ra lazy từ bảng `seat_holds`, không lưu trực tiếp trên `event_seats`
+- Trạng thái ghế được suy ra từ bảng `seat_holds`, không lưu trực tiếp trên `event_seats`
 
 # Endpoints
 
@@ -46,7 +43,6 @@ Hệ thống đặt vé sự kiện trực tuyến gồm 2 tác nhân. **Khách 
 - `POST /api/v1/auth/refresh`: Refresh token không hợp lệ hoặc hết hạn → `401 Unauthorized`
 - `POST /api/v1/auth/logout`: Browser tự xóa token ở local. Endpoint chỉ trả về thông báo thành công, chưa vô hiệu hóa token
 - `GET /api/v1/auth/me`: Trả về thông tin tài khoản đang đăng nhập; user không xác thực → lỗi xác thực
-- `POST /api/v1/auth/seed-admin`: Endpoint hiện đang public và có thể cấp token cho tài khoản đã tồn tại với email được gửi lên; cần bảo vệ hoặc vô hiệu hóa sau khi tạo admin ban đầu
 
 <br>
 
@@ -176,47 +172,7 @@ Hệ thống đặt vé sự kiện trực tuyến gồm 2 tác nhân. **Khách 
 | `PATCH` | `/api/v1/admin/orders/{orderId}/status` | Cập nhật trạng thái đơn hàng | `status`: trạng thái mới (vd: `CANCELLED`) |
 
 **Notes:**
-- `GET /api/v1/admin/orders`: Sắp xếp theo `createdAt` giảm dần.
-- `GET /api/v1/admin/orders/{orderId}`: Đơn hàng không tồn tại → `404`
-
-### Admin — Dashboard & Analytics
-
-| Method | Endpoint | Mô tả | Query params |
-|--------|----------|-------|--------------|
-| `GET` | `/api/v1/admin/dashboard/{eventId}` | Analytics của sự kiện: doanh thu, fill rate, phân bổ độ tuổi/giới tính | — |
-
-**Notes:**
 - Dashboard cũng nhận cập nhật tự động qua WebSocket topic `/topic/admin/dashboard/{eventId}` khi có đơn hàng mới
-
-### Admin — Upload
-
-| Method | Endpoint | Mô tả | Query params |
-|--------|----------|-------|--------------|
-| `POST` | `/api/v1/admin/upload` | Upload ảnh sự kiện (`multipart/form-data`), trả về URL | — |
-
-<br>
-
-## WebSocket (STOMP over SockJS)
-
-> **Endpoint kết nối:** `ws://localhost:8080/ws`  
-> **Protocol:** STOMP, SockJS fallback  
-> Client subscribe vào topic để nhận cập nhật real-time; không cần polling REST.
-
-| Topic | Mô tả | Dành cho |
-|-------|-------|----------|
-| `/topic/seats/{eventId}` | Cập nhật trạng thái ghế real-time (HELD / AVAILABLE / SOLD) | Frontend — trang chọn ghế |
-| `/topic/admin/seats/{eventId}` | Cập nhật ghế real-time (admin view, đầy đủ trạng thái) | Admin — trang quản lý ghế |
-| `/topic/admin/orders/{eventId}` | Đơn hàng mới / cập nhật trạng thái theo sự kiện | Admin — trang quản lý đơn hàng |
-| `/topic/admin/orders/global` | Tất cả đơn hàng toàn hệ thống | Admin dashboard tổng quan |
-| `/topic/admin/dashboard/{eventId}` | Cập nhật analytics dashboard tự động khi có giao dịch mới | Admin dashboard |
-| `/topic/events` | Cập nhật danh sách sự kiện (sự kiện mới, thay đổi trạng thái) | Frontend — trang chủ |
-| `/topic/notifications/users/{userId}` | Thông báo real-time của người dùng cụ thể | Frontend — notification bell |
-
-**Notes:**
-- Client cần authenticate trước khi subscribe vào các topic user-specific (vd: `/topic/notifications/users/{userId}`)
-- Payload của mỗi message là JSON tương ứng với entity được cập nhật (SeatDto, OrderDto, NotificationDto, v.v.)
-
-<br>
 
 ## EXAMPLE
 | Method | Endpoint | Mô tả | Auth | Query params |
