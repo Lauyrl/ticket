@@ -5,12 +5,12 @@ Hệ thống đặt vé sự kiện trực tuyến gồm 2 tác nhân. **Khách 
 ### Nghiệp vụ cốt lõi
 
 **Luồng đặt vé của khách hàng:**
-1. **Xác thực** — Người dùng đăng ký hoặc đăng nhập bằng email-password. Sau khi xác thực, `userId` luôn được lấy từ JWT token, không nhận từ client.
-2. **Tìm kiếm sự kiện** — Người dùng tìm kiếm sự kiện công khai với thanh tìm kiếm và bộ lọc (danh mục, thành phố, ngày). Các sự kiện được hiển thị dưới dạng phân trang. Trang chủ hiển thị sự kiện nổi bật, thanh tìm kiếm hỗ trợ gợi ý từ khóa theo thời gian thực.
-3. **Chọn ghế (Seat Hold)** — Sau khi chọn sự kiện, người dùng xem sơ đồ ghế (nhóm theo zone → row → seat) và giữ ghế tạm thời (`SeatHold`). Mỗi ghế chỉ cho phép **1 hold ACTIVE hoặc CONVERTED** tại một thời điểm (đảm bảo bằng UNIQUE INDEX trong DB, chống race condition bằng `SELECT FOR UPDATE`). Hold tự động hết hạn sau thời gian `holdDurationMinutes` của sự kiện (khoảng 5 phút); khi có người hold mới thì lazy-check và release hold cũ.
-4. **Tạo đơn hàng (Order)** — Người dùng xác nhận giỏ hàng, hệ thống tạo `Order` từ `SeatHold` đang ACTIVE. Đơn hàng ở trạng thái `PENDING` và cũng có thời hạn thanh toán (khoảng 10 phút).
-5. **Thanh toán giả lập (Checkout)** — Người dùng xác nhận thanh toán, hệ thống chuyển Order sang `PAID`, sinh `Ticket` kèm mã QR cho từng ghế.
-6. **Quản lý vé** — Người dùng xem danh sách vé của mình, chi tiết từng vé (bao gồm QR code để check-in tại sự kiện).
+1. **Xác thực** - Người dùng đăng ký hoặc đăng nhập bằng email-password. Sau khi xác thực, `userId` luôn được lấy từ JWT token, không nhận từ client.
+2. **Tìm kiếm sự kiện** - Người dùng tìm kiếm sự kiện công khai với thanh tìm kiếm và bộ lọc (danh mục, thành phố, ngày). Các sự kiện được hiển thị dưới dạng phân trang. Trang chủ hiển thị sự kiện nổi bật, thanh tìm kiếm hỗ trợ gợi ý từ khóa theo thời gian thực.
+3. **Chọn ghế (Seat Hold)** - Sau khi chọn sự kiện, người dùng xem sơ đồ ghế (nhóm theo zone → row → seat) và giữ ghế tạm thời (`SeatHold`). Mỗi ghế chỉ cho phép 1 hold ACTIVE hoặc CONVERTED tại một thời điểm (đảm bảo bằng UNIQUE INDEX trong DB, chống race condition bằng `SELECT FOR UPDATE`). Hold tự động hết hạn sau thời gian `holdDurationMinutes` của sự kiện (khoảng 5 phút); khi có người hold mới thì lazy-check và release hold cũ.
+4. **Tạo đơn hàng (Order)** - Người dùng xác nhận giỏ hàng, hệ thống tạo `Order` từ `SeatHold` đang ACTIVE. Đơn hàng ở trạng thái `PENDING` và cũng có thời hạn thanh toán (khoảng 10 phút).
+5. **Thanh toán giả lập (Checkout)** - Người dùng xác nhận thanh toán, hệ thống chuyển Order sang `PAID`, sinh `Ticket` kèm mã QR cho từng ghế.
+6. **Quản lý vé** - Người dùng xem danh sách vé của mình, chi tiết từng vé (bao gồm QR code để check-in tại sự kiện).
 
 **Nghiệp vụ Admin:**
 - Tạo và quản lý sự kiện (thông tin, hình ảnh, danh mục, trạng thái vòng đời: `DRAFT` → `ON_SALE` → `CANCELLED`/`COMPLETED`).
@@ -21,11 +21,11 @@ Hệ thống đặt vé sự kiện trực tuyến gồm 2 tác nhân. **Khách 
 
 **Thông báo & Real-time:**
 - Người dùng nhận thông báo trong ứng dụng đối với các sự kiện như: đặt vé thành công, hủy đơn, sự kiện sắp diễn ra.
-- Hệ thống sử dụng **WebSocket (STOMP over SockJS)** để đẩy cập nhật real-time: trạng thái ghế, đơn hàng mới, analytics dashboard — không polling.
+- Hệ thống sử dụng **WebSocket (STOMP over SockJS)** để đẩy cập nhật real-time: trạng thái ghế, đơn hàng mới, analytics dashboard.
 
 **Notes:**
 - `userId` luôn lấy từ token xác thực, không nhận từ request body/query
-- Trạng thái ghế được suy ra lazy từ bảng `seat_holds`, không lưu trực tiếp trên `event_seats`
+- Trạng thái ghế được suy ra từ bảng `seat_holds`, không lưu trực tiếp trên `event_seats`
 
 # Endpoints
 
