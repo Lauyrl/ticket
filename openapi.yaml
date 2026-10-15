@@ -1,0 +1,2173 @@
+openapi: 3.0.3
+info:
+  title: Event Ticketing Platform API
+  description: |
+    Đặc tả RESTful API cho Hệ thống Đặt vé Sự kiện Trực tuyến (Event Ticketing Platform).
+    
+    ### Tính năng chính:
+    - **Xác thực & Phân quyền:** Đăng ký, đăng nhập bằng Email/Password, JWT Bearer token, làm mới token, phân quyền Customer & Admin.
+    - **Sự kiện (Events):** Tìm kiếm, phân trang, lọc nâng cao theo thời gian, thành phố, danh mục; gợi ý từ khóa tìm kiếm (suggest); sự kiện trending.
+    - **Sơ đồ ghế & Giữ ghế (Seat Holds):** Hiển thị sơ đồ ghế theo Seat Zone, giữ ghế tạm thời (chống tranh chấp với SELECT FOR UPDATE + UNIQUE INDEX), tự động hết hạn (lazy expiry).
+    - **Đơn hàng & Thanh toán (Orders & Checkout):** Tạo đơn hàng từ SeatHold, hủy đơn pending, xác nhận thanh toán giả lập, sinh vé điện tử kèm mã QR.
+    - **Vé điện tử (Tickets):** Tra cứu vé của tôi, chi tiết vé kèm QR code check-in.
+    - **Thông báo (Notifications):** Danh sách thông báo in-app, đánh dấu đã đọc, xóa thông báo.
+    - **Quản trị (Admin):** Quản lý sự kiện, tạo kèm Seat Zone, sơ đồ ghế, quản lý đơn hàng toàn hệ thống, dashboard phân tích doanh thu & fill rate, upload hình ảnh.
+    
+    ### Real-time WebSocket (STOMP over SockJS):
+    - **Endpoint kết nối:** `ws://localhost:8080/ws`
+    - **Subscribed Topics:**
+      - `/topic/seats/{eventId}`: Cập nhật trạng thái ghế thời gian thực (Frontend - SeatSelection)
+      - `/topic/admin/seats/{eventId}`: Cập nhật trạng thái ghế cho Admin
+      - `/topic/admin/orders/{eventId}`: Đơn hàng mới theo sự kiện
+      - `/topic/admin/orders/global`: Tất cả đơn hàng toàn hệ thống
+      - `/topic/admin/dashboard/{eventId}`: Cập nhật metrics dashboard tự động
+      - `/topic/events`: Thay đổi trạng thái sự kiện
+      - `/topic/notifications/users/{userId}`: Thông báo real-time tới từng người dùng
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local Development Server
+
+tags:
+  - name: Auth
+    description: Đăng ký, đăng nhập và quản lý phiên người dùng
+  - name: Events (Public)
+    description: Duyệt, tìm kiếm và xem chi tiết sự kiện công khai
+  - name: Seats & Holds
+    description: Sơ đồ ghế và cơ chế giữ chỗ tạm thời (Seat Hold)
+  - name: Orders & Checkout
+    description: Tạo đơn hàng, quản lý đơn hàng và thanh toán vé
+  - name: Tickets
+    description: Quản lý và tra cứu vé điện tử của người dùng
+  - name: Notifications
+    description: Thông báo người dùng
+  - name: Admin - Events
+    description: Quản lý sự kiện dành cho Admin
+  - name: Admin - Seat Zones
+    description: Quản lý khu vực ghế và sơ đồ ghế dành cho Admin
+  - name: Admin - Orders
+    description: Quản lý đơn hàng toàn hệ thống dành cho Admin
+  - name: Admin - Dashboard & Tools
+    description: Báo cáo phân tích số liệu và upload ảnh
+
+paths:
+  # 1. AUTH
+  /api/v1/auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Đăng ký tài khoản mới
+      description: Tạo tài khoản khách hàng mới bằng email và mật khẩu.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Đăng ký thành công, trả về JWT token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Dữ liệu gửi lên không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email đã tồn tại trong hệ thống
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Đăng nhập bằng Email/Password
+      description: Xác thực người dùng và cấp cặp Access Token & Refresh Token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Đăng nhập thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Sai email hoặc mật khẩu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Làm mới Access Token
+      description: Dùng Refresh Token hợp lệ để cấp mới Access Token và Refresh Token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Cấp mới token thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Refresh Token không hợp lệ hoặc đã hết hạn
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/logout:
+    post:
+      tags:
+        - Auth
+      summary: Đăng xuất
+      description: Thông báo đăng xuất. Vì hệ thống dùng JWT stateless, client cần tự hủy token tại local storage/cookie.
+      responses:
+        '200':
+          description: Đăng xuất thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Logged out successfully
+
+  /api/v1/auth/me:
+    get:
+      tags:
+        - Auth
+      summary: Lấy thông tin người dùng hiện tại
+      description: Trả về thông tin profile của người dùng đang đăng nhập dựa trên JWT token.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Lấy thông tin thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: Chưa xác thực hoặc Token không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/seed-admin:
+    post:
+      tags:
+        - Auth
+      summary: Khởi tạo tài khoản Quản trị viên (Seed Admin)
+      description: Tạo tài khoản role ADMIN nếu email chưa tồn tại; nếu đã tồn tại thì cấp token đăng nhập.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: Cấp token cho Admin thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  # 2. EVENTS (PUBLIC)
+  /api/v1/events:
+    get:
+      tags:
+        - Events (Public)
+      summary: Danh sách sự kiện công khai (Lọc và phân trang)
+      description: Trả về danh sách sự kiện kèm bộ lọc theo tên, thành phố, khoảng thời gian bắt đầu/kết thúc.
+      parameters:
+        - name: search
+          in: query
+          description: Tìm kiếm theo tên hoặc mô tả sự kiện
+          required: false
+          schema:
+            type: string
+        - name: category
+          in: query
+          description: Lọc theo danh mục sự kiện (vd: MUSIC, WORKSHOP, SPORTS)
+          required: false
+          schema:
+            type: string
+        - name: city
+          in: query
+          description: Lọc theo thành phố tổ chức (vd: Hà Nội, TP. Hồ Chí Minh)
+          required: false
+          schema:
+            type: string
+        - name: startsAfter
+          in: query
+          description: Thời gian bắt đầu từ thời điểm này (ISO 8601 Instant)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: startsBefore
+          in: query
+          description: Thời gian bắt đầu trước thời điểm này (ISO 8601 Instant)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: endsAfter
+          in: query
+          description: Thời gian kết thúc sau thời điểm này (ISO 8601 Instant)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: endsBefore
+          in: query
+          description: Thời gian kết thúc trước thời điểm này (ISO 8601 Instant)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          description: Số trang hiện tại (0-indexed)
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        '200':
+          description: Lấy danh sách sự kiện thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageEventResponse'
+
+  /api/v1/events/suggest:
+    get:
+      tags:
+        - Events (Public)
+      summary: Gợi ý tìm kiếm sự kiện theo từ khóa
+      description: Hỗ trợ autocomplete/suggest nhanh khi người dùng đang nhập từ khóa trên ô tìm kiếm.
+      parameters:
+        - name: search
+          in: query
+          description: Từ khóa tìm kiếm
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Danh sách gợi ý sự kiện phù hợp
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventResponse'
+
+  /api/v1/events/trending:
+    get:
+      tags:
+        - Events (Public)
+      summary: Danh sách sự kiện thịnh hành (Trending)
+      description: Lấy danh sách các sự kiện nổi bật, có lượng quan tâm hoặc đặt vé cao.
+      responses:
+        '200':
+          description: Danh sách sự kiện trending
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventResponse'
+
+  /api/v1/events/{eventId}:
+    get:
+      tags:
+        - Events (Public)
+      summary: Chi tiết một sự kiện
+      description: Lấy thông tin chi tiết của sự kiện bao gồm địa điểm, thời gian, mô tả và chính sách đặt vé.
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID của sự kiện
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Thông tin chi tiết sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '404':
+          description: Không tìm thấy sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # 3. SEATS & HOLDS
+  /api/v1/events/{eventId}/seats:
+    get:
+      tags:
+        - Seats & Holds
+      summary: Lấy sơ đồ ghế của sự kiện
+      description: |
+        Trả về sơ đồ ghế phân theo Zone -> Hàng -> Ghế.
+        Trạng thái ghế (AVAILABLE, HELD, SOLD) được tính toán thời gian thực:
+        - Ghế đang HELD bởi chính user hiện tại sẽ có đánh dấu riêng.
+        - Ghế có hold đã quá hạn (expired) được giải phóng thành AVAILABLE.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Sơ đồ các zone và ghế của sự kiện
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeatZoneResponse'
+        '404':
+          description: Sự kiện không tồn tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/events/{eventId}/seats/{seatId}/hold:
+    post:
+      tags:
+        - Seats & Holds
+      summary: Giữ chỗ tạm thời cho một ghế (Seat Hold)
+      description: |
+        Tạo một phiên giữ ghế tạm thời (mặc định theo `holdDurationMinutes` của event).
+        Sử dụng cơ chế `SELECT FOR UPDATE` và Unique Constraint trong Database để ngăn race condition (hai người cùng giữ 1 ghế).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+        - name: seatId
+          in: path
+          required: true
+          description: ID của ghế muốn giữ
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Giữ ghế thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeatHoldResponse'
+        '400':
+          description: Đã vượt quá số lượng ghế tối đa được phép giữ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Ghế hoặc sự kiện không tồn tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Ghế đã bị người khác giữ hoặc đã được mua (Conflict)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Seats & Holds
+      summary: Bỏ giữ ghế thủ công
+      description: Người dùng chủ động nhả ghế đang giữ trước khi hết hạn.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+        - name: seatId
+          in: path
+          required: true
+          description: ID của ghế muốn hủy giữ
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Hủy giữ ghế thành công
+        '404':
+          description: Ghế không tồn tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Người dùng không có hold ACTIVE hợp lệ trên ghế này
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/events/{eventId}/holds:
+    get:
+      tags:
+        - Seats & Holds
+      summary: Lấy danh sách ghế đang giữ của user trong một sự kiện
+      description: Trả về danh sách các SeatHold đang ở trạng thái ACTIVE (chưa hết hạn) của người dùng hiện tại đối với sự kiện cụ thể.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Danh sách các hold đang active
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeatHoldResponse'
+
+  /api/v1/holds/active:
+    get:
+      tags:
+        - Seats & Holds
+      summary: Lấy hold active của user theo eventId
+      description: Endpoint tiện ích để kiểm tra ghế đang giữ hợp lệ trước khi checkout.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: query
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Danh sách hold active
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeatHoldResponse'
+
+  # 4. ORDERS & CHECKOUT
+  /api/v1/orders:
+    post:
+      tags:
+        - Orders & Checkout
+      summary: Tạo đơn hàng từ SeatHold
+      description: Chuyển đổi một SeatHold đang ACTIVE và chưa hết hạn thành một đơn hàng ở trạng thái PENDING.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Tạo đơn hàng thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: HoldId không hợp lệ hoặc hold đã hết hạn
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Không tìm thấy SeatHold
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/orders/my:
+    get:
+      tags:
+        - Orders & Checkout
+      summary: Danh sách đơn hàng của người dùng hiện tại
+      description: Lấy lịch sử đơn hàng của cá nhân, sắp xếp giảm dần theo thời gian tạo.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          description: Lọc theo trạng thái đơn hàng (PENDING, PAID, CANCELLED, EXPIRED)
+          required: false
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: page
+          in: query
+          description: Trang (0-indexed)
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          description: Số lượng mỗi trang
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Danh sách tóm tắt đơn hàng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageOrderSummaryResponse'
+
+  /api/v1/orders/{orderId}:
+    get:
+      tags:
+        - Orders & Checkout
+      summary: Lấy chi tiết đơn hàng
+      description: Xem chi tiết đơn hàng (bao gồm danh sách items, thông tin ghế, số tiền, trạng thái).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: ID đơn hàng
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Thông tin chi tiết đơn hàng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '404':
+          description: Đơn hàng không tồn tại hoặc không thuộc quyền sở hữu của user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Orders & Checkout
+      summary: Hủy đơn hàng PENDING
+      description: Cho phép hủy đơn hàng đang ở trạng thái PENDING và tự động giải phóng ghế tương ứng.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: ID đơn hàng cần hủy
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Hủy đơn hàng thành công
+        '400':
+          description: Không thể hủy đơn hàng không ở trạng thái PENDING
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Không tìm thấy đơn hàng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/checkout/{holdId}/confirm:
+    post:
+      tags:
+        - Orders & Checkout
+      summary: Xác nhận thanh toán giả lập
+      description: |
+        Xác nhận thanh toán cho đơn hàng liên quan đến holdId.
+        Sau khi thanh toán thành công:
+        - Order chuyển sang trạng thái `PAID`.
+        - Ghế chuyển sang trạng thái `SOLD`.
+        - Sinh các vé điện tử (`Ticket`) kèm mã QR định danh phục vụ check-in.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: holdId
+          in: path
+          required: true
+          description: ID của SeatHold
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Thanh toán thành công, trả về thông tin Order và Tickets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Đơn hàng đã hết hạn hoặc không thể thanh toán
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Không tìm thấy đơn hàng / hold
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # 5. TICKETS
+  /api/v1/tickets/my:
+    get:
+      tags:
+        - Tickets
+      summary: Danh sách vé của người dùng hiện tại
+      description: Lấy toàn bộ vé điện tử đã mua của người dùng hiện tại kèm mã QR.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          description: Lọc theo trạng thái vé (VALID, USED, CANCELLED)
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Số trang (0-indexed)
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          description: Số vé trên một trang
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Danh sách vé điện tử
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageTicketResponse'
+
+  /api/v1/tickets/my/events/{eventId}:
+    get:
+      tags:
+        - Tickets
+      summary: Danh sách vé của tôi cho một sự kiện cụ thể
+      description: Tra cứu danh sách các vé thuộc về sự kiện đang chọn của người dùng hiện tại.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+        - name: status
+          in: query
+          description: Lọc theo trạng thái vé
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Danh sách vé sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageTicketResponse'
+
+  /api/v1/tickets/{ticketId}:
+    get:
+      tags:
+        - Tickets
+      summary: Chi tiết một vé điện tử
+      description: Xem thông tin vé cụ thể, mã ghế, zone, sự kiện và mã QR check-in.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          description: ID vé
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Chi tiết vé điện tử
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketResponse'
+        '404':
+          description: Không tìm thấy vé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # 6. NOTIFICATIONS
+  /api/v1/notifications:
+    get:
+      tags:
+        - Notifications
+      summary: Danh sách thông báo của người dùng
+      description: Lấy danh sách thông báo in-app có phân trang, sắp xếp theo thời gian mới nhất.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Trang (0-indexed)
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          description: Kích thước trang
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Danh sách thông báo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageNotificationResponse'
+
+    delete:
+      tags:
+        - Notifications
+      summary: Xóa các thông báo được chọn
+      description: Xóa nhiều thông báo cùng lúc theo danh sách ID truyền vào.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          description: Danh sách ID thông báo cách nhau bởi dấu phẩy (vd: 1,2,3)
+          schema:
+            type: string
+            example: "1,2,3"
+      responses:
+        '204':
+          description: Xóa các thông báo thành công
+        '400':
+          description: Thiếu tham số ids hoặc format không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/notifications/unread-count:
+    get:
+      tags:
+        - Notifications
+      summary: Số lượng thông báo chưa đọc
+      description: Trả về số lượng badge thông báo chưa đọc để hiển thị trên icon chuông.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Số lượng thông báo chưa đọc
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unreadCount:
+                    type: integer
+                    example: 3
+
+  /api/v1/notifications/{notificationId}/read:
+    patch:
+      tags:
+        - Notifications
+      summary: Đánh dấu một thông báo đã đọc
+      description: Cập nhật trạng thái của 1 thông báo cụ thể thành đã đọc (READ).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          description: ID thông báo
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Đánh dấu đã đọc thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationResponse'
+        '404':
+          description: Không tìm thấy thông báo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/notifications/read-all:
+    patch:
+      tags:
+        - Notifications
+      summary: Đánh dấu tất cả thông báo đã đọc
+      description: Đánh dấu toàn bộ thông báo chưa đọc của người dùng hiện tại thành đã đọc.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updatedCount:
+                    type: integer
+                    example: 5
+
+  /api/v1/notifications/{notificationId}:
+    delete:
+      tags:
+        - Notifications
+      summary: Xóa một thông báo
+      description: Xóa một thông báo theo ID của user hiện tại.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          description: ID thông báo
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Xóa thông báo thành công
+        '404':
+          description: Không tìm thấy thông báo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/notifications/all:
+    delete:
+      tags:
+        - Notifications
+      summary: Xóa tất cả thông báo
+      description: Xóa toàn bộ lịch sử thông báo của người dùng hiện tại.
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          description: Đã xóa toàn bộ thông báo thành công
+
+  # 7. ADMIN - EVENTS
+  /api/v1/admin/events:
+    get:
+      tags:
+        - Admin - Events
+      summary: Danh sách tất cả sự kiện (Admin)
+      description: Lấy danh sách toàn bộ sự kiện bao gồm cả DRAFT, CANCELLED với đầy đủ filter.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          description: Tìm theo tên sự kiện
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Lọc theo trạng thái
+          required: false
+          schema:
+            $ref: '#/components/schemas/EventStatus'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 12
+      responses:
+        '200':
+          description: Danh sách sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageEventResponse'
+
+    post:
+      tags:
+        - Admin - Events
+      summary: Tạo sự kiện mới
+      description: Tạo sự kiện cơ bản ở trạng thái DRAFT.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventRequest'
+      responses:
+        '201':
+          description: Tạo sự kiện thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          description: Dữ liệu không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/events/with-seat-zones:
+    post:
+      tags:
+        - Admin - Events
+      summary: Tạo sự kiện kèm Seat Zones
+      description: Tạo mới sự kiện và thiết lập ngay toàn bộ danh sách zone ghế trong cùng một transaction.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventWithZonesRequest'
+      responses:
+        '201':
+          description: Tạo sự kiện kèm zone ghế thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          description: Dữ liệu không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/events/{eventId}:
+    get:
+      tags:
+        - Admin - Events
+      summary: Chi tiết sự kiện (Admin view)
+      description: Lấy thông tin chi tiết sự kiện cho trang quản trị.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Chi tiết sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '404':
+          description: Không tìm thấy sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags:
+        - Admin - Events
+      summary: Cập nhật thông tin sự kiện
+      description: Chỉnh sửa tên, địa điểm, thời gian, hình ảnh, chính sách ghế của sự kiện.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEventRequest'
+      responses:
+        '200':
+          description: Cập nhật thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '404':
+          description: Sự kiện không tồn tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Admin - Events
+      summary: Xóa sự kiện
+      description: Xóa sự kiện nếu chưa có đơn hàng liên kết.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Xóa thành công
+        '400':
+          description: Không thể xóa sự kiện đã bán vé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/events/{eventId}/status:
+    patch:
+      tags:
+        - Admin - Events
+      summary: Thay đổi trạng thái vòng đời sự kiện
+      description: Chuyển đổi trạng thái sự kiện theo luồng DRAFT -> ON_SALE -> COMPLETED / CANCELLED.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+        - name: status
+          in: query
+          required: true
+          description: Trạng thái mới
+          schema:
+            $ref: '#/components/schemas/EventStatus'
+      responses:
+        '200':
+          description: Đổi trạng thái thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          description: Luồng chuyển đổi trạng thái không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+
+  # 8. ADMIN - SEAT ZONES
+  /api/v1/admin/events/{eventId}/seat-zones:
+    get:
+      tags:
+        - Admin - Seat Zones
+      summary: Lấy danh sách seat zones của sự kiện
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Danh sách zone
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeatZoneResponse'
+
+    post:
+      tags:
+        - Admin - Seat Zones
+      summary: Tạo hoặc cập nhật seat zones cho sự kiện
+      description: Định nghĩa danh sách các zone (tên, giá, màu sắc, số hàng, số ghế mỗi hàng). Hệ thống tự sinh các ghế tương ứng.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/CreateSeatZoneRequest'
+      responses:
+        '200':
+          description: Tạo/cập nhật zone thành công
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeatZoneResponse'
+
+  /api/v1/admin/events/{eventId}/seat-map:
+    get:
+      tags:
+        - Admin - Seat Zones
+      summary: Xem sơ đồ ghế đầy đủ (Admin view)
+      description: Trả về trạng thái chi tiết của từng ghế (bao gồm cả ID người giữ, thời gian hết hạn hold, thông tin vé bán).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Sơ đồ ghế góc nhìn quản trị
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeatZoneResponse'
+
+  # 9. ADMIN - ORDERS
+  /api/v1/admin/orders:
+    get:
+      tags:
+        - Admin - Orders
+      summary: Danh sách tất cả đơn hàng toàn hệ thống
+      description: Hỗ trợ tìm kiếm theo mã đơn, khách hàng, lọc theo sự kiện và trạng thái.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: query
+          description: Lọc theo ID sự kiện
+          required: false
+          schema:
+            type: integer
+            format: int64
+        - name: status
+          in: query
+          description: Lọc theo trạng thái đơn hàng
+          required: false
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: search
+          in: query
+          description: Tìm kiếm theo mã đơn hàng hoặc email khách hàng
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Danh sách đơn hàng toàn hệ thống
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageOrderSummaryResponse'
+
+  /api/v1/admin/orders/{orderId}:
+    get:
+      tags:
+        - Admin - Orders
+      summary: Chi tiết một đơn hàng bất kỳ
+      description: Lấy chi tiết đơn hàng không giới hạn theo userId.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: ID đơn hàng
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Chi tiết đơn hàng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '404':
+          description: Không tìm thấy đơn hàng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/orders/{orderId}/status:
+    patch:
+      tags:
+        - Admin - Orders
+      summary: Cập nhật trạng thái đơn hàng (Admin)
+      description: Cho phép can thiệp thủ công trạng thái đơn hàng (ví dụ: CANCELLED hoặc REFUNDED).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: ID đơn hàng
+          schema:
+            type: integer
+            format: int64
+        - name: status
+          in: query
+          required: true
+          description: Trạng thái mới
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+      responses:
+        '200':
+          description: Cập nhật thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '404':
+          description: Đơn hàng không tồn tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # 10. ADMIN - DASHBOARD & TOOLS
+  /api/v1/admin/dashboard/{eventId}:
+    get:
+      tags:
+        - Admin - Dashboard & Tools
+      summary: Báo cáo Analytics cho một sự kiện
+      description: Thống kê doanh thu, số vé đã bán, tỷ lệ lấp đầy ghế (fill rate), và phân bổ độ tuổi/giới tính của người mua.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          description: ID sự kiện
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Dữ liệu phân tích báo cáo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardAnalyticsResponse'
+        '404':
+          description: Sự kiện không tồn tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/admin/upload:
+    post:
+      tags:
+        - Admin - Dashboard & Tools
+      summary: Upload hình ảnh
+      description: Upload hình ảnh banner, poster sự kiện qua multipart/form-data và nhận lại URL ảnh public.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: File ảnh (jpg, png, webp, ...)
+      responses:
+        '200':
+          description: Upload thành công, trả về đường dẫn ảnh
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    example: https://res.cloudinary.com/ticket-app/image/upload/v1/events/poster.jpg
+        '400':
+          description: Định dạng file không hợp lệ hoặc kích thước quá lớn
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# COMPONENTS & SCHEMAS
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Nhập chuỗi JWT Access Token (không cần gõ tiền tố 'Bearer ')
+
+  schemas:
+    # Auth Schemas
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+        - fullName
+      properties:
+        email:
+          type: string
+          format: email
+          example: customer@example.com
+        password:
+          type: string
+          format: password
+          minLength: 6
+          example: secret123
+        fullName:
+          type: string
+          example: Nguyen Van A
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: customer@example.com
+        password:
+          type: string
+          format: password
+          example: secret123
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        refreshToken:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        tokenType:
+          type: string
+          example: Bearer
+        id:
+          type: integer
+          format: int64
+          example: 1
+        email:
+          type: string
+          example: customer@example.com
+        fullName:
+          type: string
+          example: Nguyen Van A
+        role:
+          $ref: '#/components/schemas/UserRole'
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        email:
+          type: string
+          example: customer@example.com
+        fullName:
+          type: string
+          example: Nguyen Van A
+        role:
+          $ref: '#/components/schemas/UserRole'
+
+    UserRole:
+      type: string
+      enum:
+        - CUSTOMER
+        - ADMIN
+      example: CUSTOMER
+
+    # Event Schemas
+    EventStatus:
+      type: string
+      enum:
+        - DRAFT
+        - ON_SALE
+        - COMPLETED
+        - CANCELLED
+      example: ON_SALE
+
+    EventResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 101
+        name:
+          type: string
+          example: Liveshow Âm Nhạc Mùa Thu 2026
+        description:
+          type: string
+          example: Đêm nhạc hội quy tụ các nghệ sĩ hàng đầu Việt Nam
+        category:
+          type: string
+          example: MUSIC
+        venue:
+          type: string
+          example: Trung tâm Hội nghị Quốc gia
+        city:
+          type: string
+          example: Hà Nội
+        startsAt:
+          type: string
+          format: date-time
+          example: '2026-11-20T12:00:00Z'
+        endsAt:
+          type: string
+          format: date-time
+          example: '2026-11-20T16:00:00Z'
+        imageUrl:
+          type: string
+          example: https://images.unsplash.com/photo-1501386761578-eac5c94b800a
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        maxSeatsPerUser:
+          type: integer
+          example: 4
+        holdDurationMinutes:
+          type: integer
+          example: 10
+
+    CreateEventRequest:
+      type: object
+      required:
+        - name
+        - startsAt
+        - endsAt
+        - city
+        - venue
+      properties:
+        name:
+          type: string
+          example: Đại Nhạc Hội Mùa Hè 2026
+        description:
+          type: string
+          example: Sự kiện âm nhạc ngoài trời sôi động
+        category:
+          type: string
+          example: MUSIC
+        venue:
+          type: string
+          example: Sân vận động Mỹ Đình
+        city:
+          type: string
+          example: Hà Nội
+        startsAt:
+          type: string
+          format: date-time
+          example: '2026-07-15T12:00:00Z'
+        endsAt:
+          type: string
+          format: date-time
+          example: '2026-07-15T15:30:00Z'
+        imageUrl:
+          type: string
+          example: https://images.unsplash.com/photo-1470225620780-dba8ba36b745
+        maxSeatsPerUser:
+          type: integer
+          default: 4
+          example: 4
+        holdDurationMinutes:
+          type: integer
+          default: 10
+          example: 10
+
+    UpdateEventRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        venue:
+          type: string
+        city:
+          type: string
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        imageUrl:
+          type: string
+        maxSeatsPerUser:
+          type: integer
+        holdDurationMinutes:
+          type: integer
+
+    CreateEventWithZonesRequest:
+      type: object
+      required:
+        - name
+        - startsAt
+        - endsAt
+        - city
+        - venue
+        - zones
+      properties:
+        name:
+          type: string
+          example: Rock Fest 2026
+        description:
+          type: string
+        category:
+          type: string
+          example: ROCK
+        venue:
+          type: string
+          example: Nhà hát Hòa Bình
+        city:
+          type: string
+          example: TP. Hồ Chí Minh
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        imageUrl:
+          type: string
+        maxSeatsPerUser:
+          type: integer
+          default: 4
+        holdDurationMinutes:
+          type: integer
+          default: 10
+        zones:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreateSeatZoneRequest'
+
+    # Seats & Holds Schemas
+    SeatStatus:
+      type: string
+      enum:
+        - AVAILABLE
+        - HELD
+        - SOLD
+      example: AVAILABLE
+
+    SeatResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 501
+        rowIndex:
+          type: integer
+          example: 1
+        seatNumber:
+          type: integer
+          example: 12
+        status:
+          $ref: '#/components/schemas/SeatStatus'
+
+    SeatZoneResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 12
+        name:
+          type: string
+          example: Zone VIP A
+        price:
+          type: number
+          format: double
+          example: 1500000.00
+        seats:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeatResponse'
+
+    CreateSeatZoneRequest:
+      type: object
+      required:
+        - name
+        - price
+        - rows
+        - seatsPerRow
+      properties:
+        name:
+          type: string
+          example: VIP A
+        color:
+          type: string
+          example: '#FFD700'
+        price:
+          type: number
+          format: double
+          example: 1500000.00
+        rows:
+          type: integer
+          example: 5
+        seatsPerRow:
+          type: integer
+          example: 20
+
+    SeatHoldStatus:
+      type: string
+      enum:
+        - ACTIVE
+        - RELEASED
+        - CONVERTED
+      example: ACTIVE
+
+    SeatHoldResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 55
+        seatId:
+          type: integer
+          format: int64
+          example: 501
+        status:
+          $ref: '#/components/schemas/SeatHoldStatus'
+        expiresAt:
+          type: string
+          format: date-time
+          example: '2026-10-15T08:15:00Z'
+
+    # Order Schemas
+    OrderStatus:
+      type: string
+      enum:
+        - PENDING
+        - PAID
+        - CANCELLED
+        - EXPIRED
+      example: PENDING
+
+    CreateOrderRequest:
+      type: object
+      required:
+        - holdId
+      properties:
+        holdId:
+          type: integer
+          format: int64
+          example: 55
+
+    OrderItemResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1001
+        seatId:
+          type: integer
+          format: int64
+          example: 501
+        seatName:
+          type: string
+          example: Row 1 - Seat 12
+        zoneName:
+          type: string
+          example: VIP A
+        price:
+          type: number
+          format: double
+          example: 1500000.00
+
+    OrderResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 2001
+        orderCode:
+          type: string
+          example: ORD-20261015-8899
+        userId:
+          type: integer
+          format: int64
+          example: 1
+        eventId:
+          type: integer
+          format: int64
+          example: 101
+        eventName:
+          type: string
+          example: Liveshow Âm Nhạc Mùa Thu 2026
+        holdId:
+          type: integer
+          format: int64
+          example: 55
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        totalAmount:
+          type: number
+          format: double
+          example: 1500000.00
+        expiresAt:
+          type: string
+          format: date-time
+          example: '2026-10-15T08:25:00Z'
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-10-15T08:18:22Z'
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-10-15T08:10:00Z'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItemResponse'
+
+    OrderSummaryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 2001
+        orderCode:
+          type: string
+          example: ORD-20261015-8899
+        eventId:
+          type: integer
+          format: int64
+          example: 101
+        eventName:
+          type: string
+          example: Liveshow Âm Nhạc Mùa Thu 2026
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        totalAmount:
+          type: number
+          format: double
+          example: 1500000.00
+        totalItems:
+          type: integer
+          example: 1
+        expiresAt:
+          type: string
+          format: date-time
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    # Ticket Schemas
+    TicketResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 3001
+        ticketCode:
+          type: string
+          example: TCK-2026-9901
+        qrCodeUrl:
+          type: string
+          example: https://api.qrserver.com/v1/create-qr-code/?data=TCK-2026-9901
+        orderId:
+          type: integer
+          format: int64
+          example: 2001
+        eventId:
+          type: integer
+          format: int64
+          example: 101
+        eventName:
+          type: string
+          example: Liveshow Âm Nhạc Mùa Thu 2026
+        venue:
+          type: string
+          example: Trung tâm Hội nghị Quốc gia
+        city:
+          type: string
+          example: Hà Nội
+        startsAt:
+          type: string
+          format: date-time
+        zoneName:
+          type: string
+          example: VIP A
+        rowIndex:
+          type: integer
+          example: 1
+        seatNumber:
+          type: integer
+          example: 12
+        price:
+          type: number
+          format: double
+          example: 1500000.00
+        status:
+          type: string
+          example: VALID
+        createdAt:
+          type: string
+          format: date-time
+
+    # Notification Schemas
+    NotificationResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 77
+        title:
+          type: string
+          example: Đặt vé thành công!
+        message:
+          type: string
+          example: Đơn hàng ORD-20261015-8899 đã được thanh toán thành công.
+        type:
+          type: string
+          example: ORDER_SUCCESS
+        read:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+
+    # Dashboard & Analytics Schemas
+    DashboardAnalyticsResponse:
+      type: object
+      properties:
+        eventId:
+          type: integer
+          format: int64
+          example: 101
+        totalRevenue:
+          type: number
+          format: double
+          example: 450000000.00
+        totalSeats:
+          type: integer
+          example: 1000
+        soldSeats:
+          type: integer
+          example: 780
+        heldSeats:
+          type: integer
+          example: 45
+        fillRate:
+          type: number
+          format: float
+          example: 78.0
+        ageDemographics:
+          type: object
+          additionalProperties:
+            type: integer
+          example:
+            "18-24": 420
+            "25-34": 280
+            "35+": 80
+        genderDemographics:
+          type: object
+          additionalProperties:
+            type: integer
+          example:
+            "MALE": 390
+            "FEMALE": 370
+            "OTHER": 20
+
+    # Pagination Wrappers (Spring Data Page)
+    PageEventResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventResponse'
+        totalElements:
+          type: integer
+          format: int64
+          example: 25
+        totalPages:
+          type: integer
+          example: 3
+        size:
+          type: integer
+          example: 12
+        number:
+          type: integer
+          example: 0
+
+    PageOrderSummaryResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderSummaryResponse'
+        totalElements:
+          type: integer
+          format: int64
+          example: 5
+        totalPages:
+          type: integer
+          example: 1
+        size:
+          type: integer
+          example: 10
+        number:
+          type: integer
+          example: 0
+
+    PageTicketResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketResponse'
+        totalElements:
+          type: integer
+          format: int64
+          example: 2
+        totalPages:
+          type: integer
+          example: 1
+        size:
+          type: integer
+          example: 10
+        number:
+          type: integer
+          example: 0
+
+    PageNotificationResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationResponse'
+        totalElements:
+          type: integer
+          format: int64
+          example: 15
+        totalPages:
+          type: integer
+          example: 2
+        size:
+          type: integer
+          example: 10
+        number:
+          type: integer
+          example: 0
+
+    # Error Response
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          example: '2026-10-15T08:15:30Z'
+        status:
+          type: integer
+          example: 400
+        error:
+          type: string
+          example: Bad Request
+        message:
+          type: string
+          example: Ghế đã có người giữ hoặc đã được bán
+        path:
+          type: string
+          example: /api/v1/events/101/seats/501/hold
