@@ -33,6 +33,17 @@ public class SeatZoneEntity {
         UNIQUE (id, event_id)       -- target for the composite FK in event_seats
     );
     */
+
+    public SeatZoneEntity(
+        String name,
+        BigDecimal price,
+        EventEntity event
+    ) {
+        this.name = name;
+        this.price = price;
+        this.event = event;
+    }
+
     @Id 
     @GeneratedValue (strategy = GenerationType.IDENTITY)
     private Long id;
