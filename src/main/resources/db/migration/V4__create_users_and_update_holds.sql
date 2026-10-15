@@ -1,6 +1,6 @@
 -- Migration: Create users, customer_profiles and link foreign keys to events & seat_holds
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     email       VARCHAR(255) NOT NULL UNIQUE,
     password    VARCHAR(255) NOT NULL,

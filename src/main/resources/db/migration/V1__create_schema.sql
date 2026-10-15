@@ -16,6 +16,16 @@ END;
 -- seat_holds, event_seats, seat_zones, events,
 -- password_reset_otps, customer_profiles, users CASCADE;
 
+CREATE TABLE IF NOT EXISTS users (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email       VARCHAR(255) NOT NULL UNIQUE,
+    password    VARCHAR(255) NOT NULL,
+    full_name   VARCHAR(255) NOT NULL,
+    role        VARCHAR(20)  NOT NULL DEFAULT 'CUSTOMER' CHECK (role IN ('CUSTOMER', 'ADMIN')),
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
 CREATE TABLE events (
     id                    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name                  VARCHAR(500) NOT NULL,
@@ -29,7 +39,7 @@ CREATE TABLE events (
     status                VARCHAR(20)  NOT NULL DEFAULT 'UPCOMING' CHECK (status IN ('UPCOMING', 'ON_SALE', 'ENDED', 'CANCELLED')),
     max_seats_per_user    INT          NOT NULL DEFAULT 2  CHECK (max_seats_per_user > 0),
     hold_duration_minutes INT          NOT NULL DEFAULT 10 CHECK (hold_duration_minutes > 0),
-    created_by            BIGINT       NOT NULL, -- REFERENCES users(id) ON DELETE SET NULL,
+    created_by            BIGINT       REFERENCES users(id) ON DELETE SET NULL,
     created_at            TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at            TIMESTAMPTZ  NOT NULL DEFAULT now(),
     CHECK (ends_at > starts_at)
@@ -50,8 +60,8 @@ CREATE TABLE seat_zones (
 -- pure geometry: availability is derived from seat_holds, never stored here
 CREATE TABLE event_seats (
     id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    event_id     BIGINT      NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    zone_id      BIGINT      NOT NULL,
+    event_id     BIGINT      NOT NULL REFERENCES events(id) ON DELETE CASCADE,,
+    zone_id      BIGINT      NOT NULL REFERENCES seat_zones(id) ON DELETE CASCADE,
     row_index    INT         NOT NULL,
     seat_number  INT         NOT NULL CHECK (seat_number > 0),  -- cycles per row
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -66,8 +76,8 @@ CREATE INDEX idx_event_seats_zone ON event_seats (zone_id, row_index, seat_numbe
 -- RELEASED = seat is free again (refund/cancel/timeout -> RELEASED)
 CREATE TABLE seat_holds (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    user_id     BIGINT      , -- NOT NULL REFERENCES users(id) ON DELETE SET NULL,
-    seat_id     BIGINT      NOT NULL REFERENCES event_seats(id) ON DELETE SET NULL,
+    user_id     BIGINT      REFERENCES users(id) ON DELETE SET NULL,
+    seat_id     BIGINT      REFERENCES event_seats(id) ON DELETE SET NULL,
     status      VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'RELEASED', 'CONVERTED')), --- , 'EXPIRED'
     held_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     expires_at  TIMESTAMPTZ NOT NULL,
