@@ -60,7 +60,7 @@ CREATE TABLE seat_zones (
 -- pure geometry: availability is derived from seat_holds, never stored here
 CREATE TABLE event_seats (
     id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    event_id     BIGINT      NOT NULL REFERENCES events(id) ON DELETE CASCADE,,
+    event_id     BIGINT      NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     zone_id      BIGINT      NOT NULL REFERENCES seat_zones(id) ON DELETE CASCADE,
     row_index    INT         NOT NULL,
     seat_number  INT         NOT NULL CHECK (seat_number > 0),  -- cycles per row
