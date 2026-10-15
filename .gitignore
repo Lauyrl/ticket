@@ -31,3 +31,8 @@ build/
 
 ### VS Code ###
 .vscode/
+
+src/test/java/com/example/ticket/EventsIntegrationTest.java
+src/test/resources/*
+
+api_endpoints.md
