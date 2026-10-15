@@ -64,7 +64,8 @@ public class SecurityConfig {
                     "/api/v1/events",
                     "/api/v1/events/suggest",
                     "/api/v1/events/trending",
-                    "/api/v1/events/{eventId:[0-9]+}"
+                    "/api/v1/events/{eventId:[0-9]+}",
+                    "/api/v1/events/{eventId:[0-9]+}/seats"
                 ).permitAll()
 
                 // OpenAPI / Swagger endpoints
