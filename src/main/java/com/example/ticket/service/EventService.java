@@ -92,42 +92,71 @@ public class EventService {
     }
 
     // ADMIN
+    public Page<EventResponse> getAdminEvents(String search, EventStatus status, Pageable pageable) {
+        return eventRepository.findAdminEvents(search, status, pageable).map(EventResponse::new);
+    }
+
+    // ADMIN
     @Transactional
     public EventResponse createEvent(CreateEventRequest request) {
-        EventEntity event = new EventEntity(request.name(), request.description(), request.category(), request.venue(), request.city(), request.startsAt(), request.endsAt(), request.imageUrl(), request.status(), request.maxSeatsPerUser(), request.holdDurationMinutes());
+        return createEvent(request, null);
+    }
+
+    // ADMIN
+    @Transactional
+    public EventResponse createEvent(CreateEventRequest request, Long adminId) {
+        EventEntity event = new EventEntity(
+            request.name(),
+            request.description(),
+            request.category(),
+            request.venue(),
+            request.city(),
+            request.startsAt(),
+            request.endsAt(),
+            request.imageUrl(),
+            request.status(),
+            request.maxSeatsPerUser(),
+            request.holdDurationMinutes()
+        );
+        if (adminId != null) {
+            event.setCreatedBy(adminId);
+        }
         eventRepository.save(event);
 
-        List<SeatZoneEntity> zones = request.zones()
-            .stream()
-            .map(zoneRequest -> {
-                SeatZoneEntity zone = new SeatZoneEntity(zoneRequest.name(), zoneRequest.price(), event); 
-                return zone;
-            })
-            .toList();
-        // zones need to exist before seats to create FKs
-        seatZoneRepository.saveAll(zones);
+        if (request.zones() != null && !request.zones().isEmpty()) {
+            List<SeatZoneEntity> zones = request.zones()
+                .stream()
+                .map(zoneRequest -> new SeatZoneEntity(zoneRequest.name(), zoneRequest.price(), event))
+                .toList();
+            // zones need to exist before seats to create FKs
+            seatZoneRepository.saveAll(zones);
 
-        List<SeatEntity> seats = request.zones()
-            .stream()
-            .flatMap(zoneRequest -> {
-                return zoneRequest.seats()
-                    .stream()
-                    .map(seatRequest -> new SeatEntity(
-                        seatRequest.rowIndex(), 
-                        seatRequest.seatNumber(), 
-                        event, 
-                        zones.get(request.zones().indexOf(zoneRequest))
-                    )); // return the stream
-            }) // flatMap merges all streams returned
-            .toList();
-        seatRepository.saveAll(seats);
+            List<SeatEntity> seats = new java.util.ArrayList<>();
+            for (int i = 0; i < request.zones().size(); i++) {
+                CreateSeatZoneRequest zoneReq = request.zones().get(i);
+                SeatZoneEntity savedZone = zones.get(i);
+                if (zoneReq.seats() != null) {
+                    for (CreateSeatRequest seatReq : zoneReq.seats()) {
+                        seats.add(new SeatEntity(
+                            seatReq.rowIndex(),
+                            seatReq.seatNumber(),
+                            event,
+                            savedZone
+                        ));
+                    }
+                }
+            }
+            if (!seats.isEmpty()) {
+                seatRepository.saveAll(seats);
+            }
+        }
 
         return new EventResponse(event);
     }
 
     // ADMIN
     @Transactional
-    public void updateEvent(Long eventId, UpdateEventRequest request) {
+    public EventResponse updateEvent(Long eventId, UpdateEventRequest request) {
         EventEntity event = eventRepository.findById(eventId).orElseThrow(() -> new EventNotFoundException(eventId));
 
         if (request.name() != null) event.setName(request.name());
@@ -148,30 +177,46 @@ public class EventService {
             && !event.getEndsAt().isAfter(event.getStartsAt())) {
             throw new IllegalArgumentException("endsAt must be after startsAt");
         }
+
+        EventEntity saved = eventRepository.save(event);
+        return new EventResponse(saved);
     }
 
     // ADMIN
-    // public List<SeatZoneResponse> setEventSeatZones(Long eventId, List<CreateSeatZoneRequest> newZonesRequests) {
-    //     Set<SeatZoneEntity> allExistingZones = new HashSet<>(seatZoneRepository.findAllByEventId(eventId));
-        
-    //     // if zone in list matches existing zone by (eventId, name), update matching existing zones 
-    //     List<SeatZoneEntity> matchingExistingZones = seatZoneRepository.findAllByEventIdAndName(
-    //         eventId, newZonesRequests.stream().map(z -> z.name()).toList() 
-    //     );
+    @Transactional
+    public List<SeatZoneResponse> setEventSeatZones(Long eventId, List<CreateSeatZoneRequest> requests) {
+        EventEntity event = eventRepository.findById(eventId).orElseThrow(() -> new EventNotFoundException(eventId));
 
-    //     for (SeatZoneEntity zone : matchingExistingZones) {
-    //         // the only updateable field
-    //         zone.setPrice(newZonesRequests.get(matchingExistingZones.indexOf(zone)).price());
-    //     }
+        if (requests == null || requests.isEmpty()) {
+            return getSeatsByEvent(eventId, null);
+        }
 
-    //     // if zone in list doesnt match any existing zone -> create new zone
-    //     List<SeatZoneEntity> newZones = newZonesRequests
-    //         .stream()
-    //         .filter(e -> )
+        for (CreateSeatZoneRequest zoneReq : requests) {
+            SeatZoneEntity zone = seatZoneRepository.findByEventIdAndName(eventId, zoneReq.name())
+                .orElseGet(() -> seatZoneRepository.save(new SeatZoneEntity(zoneReq.name(), zoneReq.price(), event)));
 
-    //     // if an existing zone not in list -> delete
+            zone.setPrice(zoneReq.price());
+            seatZoneRepository.save(zone);
 
-    // }
+            if (zoneReq.seats() != null) {
+                List<SeatEntity> newSeats = new java.util.ArrayList<>();
+                for (CreateSeatRequest seatReq : zoneReq.seats()) {
+                    boolean exists = seatRepository.existsByEventIdAndRowIndexAndSeatNumber(
+                        eventId, seatReq.rowIndex(), seatReq.seatNumber()
+                    );
+                    if (!exists) {
+                        newSeats.add(new SeatEntity(seatReq.rowIndex(), seatReq.seatNumber(), event, zone));
+                    }
+                }
+                if (!newSeats.isEmpty()) {
+                    seatRepository.saveAll(newSeats);
+                }
+            }
+        }
+
+        return getSeatsByEvent(eventId, null);
+    }
+
 
     @Transactional // non-readOnly
     public SeatHoldResponse holdSeat(Long eventId, Long seatId, Long userId) {

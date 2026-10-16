@@ -7,8 +7,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import com.example.ticket.entity.event.EventEntity;
+import com.example.ticket.enums.EventStatus;
 
 public interface EventRepository extends JpaRepository<EventEntity, Long> {
     
@@ -51,4 +53,15 @@ public interface EventRepository extends JpaRepository<EventEntity, Long> {
         LIMIT 5
     """, nativeQuery = true)
     public List<EventEntity> findSuggestedEvents(String search);
+
+    @Query("""
+        SELECT e FROM EventEntity e
+        WHERE (:search IS NULL OR LOWER(e.name) LIKE LOWER(CONCAT('%', :search, '%')))
+          AND (:status IS NULL OR e.status = :status)
+    """)
+    public Page<EventEntity> findAdminEvents(
+        @Param("search") String search,
+        @Param("status") EventStatus status,
+        Pageable pageable
+    );
 }

@@ -1,6 +1,5 @@
 package com.example.ticket.controller;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
@@ -9,25 +8,18 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.example.ticket.dto.event.CreateEventRequest;
-import com.example.ticket.dto.event.CreateSeatZoneRequest;
 import com.example.ticket.dto.event.EventResponse;
 import com.example.ticket.dto.event.SeatHoldResponse;
 import com.example.ticket.dto.event.SeatZoneResponse;
-import com.example.ticket.dto.event.UpdateEventRequest;
-import com.example.ticket.entity.event.SeatZoneEntity;
 import com.example.ticket.security.UserPrincipal;
 import com.example.ticket.service.EventService;
 
-import io.swagger.v3.oas.annotations.parameters.RequestBody;
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 
@@ -101,33 +93,4 @@ public class EventController {
         List<SeatHoldResponse> response = eventService.getUserSeatHolds(eventId, currentUser.getId());
         return response;
     }
-
-    @GetMapping("/api/v1/holds/active")
-    public List<SeatHoldResponse> getActiveHolds(
-        @RequestParam Long eventId,
-        @AuthenticationPrincipal UserPrincipal currentUser
-    ) {
-        return eventService.getUserSeatHolds(eventId, currentUser.getId());
-    }
-
-    @PostMapping("/api/v1/admin/events")
-    public EventResponse createEvent(@Valid @RequestBody CreateEventRequest request) {
-        EventResponse response = eventService.createEvent(request);
-        return response;
-    }
-
-    @PatchMapping("/api/v1/admin/events/{eventId}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void updateEvent(@RequestParam Long eventId, @Valid @RequestBody UpdateEventRequest request) {
-        eventService.updateEvent(eventId, request);
-    }
-    
-    // @PostMapping("/api/v1/admin/events/{eventId}")
-    // public List<SeatZoneResponse> setEventSeatZones(@RequestParam Long eventId, @Valid @RequestBody List<CreateSeatZoneRequest> requests) {
-    //     List<SeatZoneResponse> response = eventService.setEventSeatZones(eventId, requests);
-    //     return response;
-    // }
-    
-
-    // | `DELETE` | `/api/v1/admin/events/{eventId}/cancel` | CANCEL sự kiện |
 }

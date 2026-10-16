@@ -117,8 +117,8 @@ public class EventEntity {
     @Column(name = "hold_duration_minutes", nullable = false)
     private int holdDurationMinutes;
 
-    @Column(name = "created_by", insertable = false)
-    private long createdBy;
+    @Column(name = "created_by")
+    private Long createdBy;
 
     @Column(name = "created_at", nullable = false, insertable = false)
     private Instant createdAt;

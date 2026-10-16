@@ -16,6 +16,8 @@ public interface SeatRepository extends JpaRepository<SeatEntity, Long> {
 
     List<SeatEntity> findByZoneId(Long zoneId);
 
+    boolean existsByEventIdAndRowIndexAndSeatNumber(Long eventId, Integer rowIndex, Integer seatNumber);
+
     @Query(value = """
         SELECT 
             s.id AS id,
