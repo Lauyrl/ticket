@@ -54,8 +54,8 @@ public class EventService {
     private final SeatHoldRepository seatHoldRepository;
     private final com.example.ticket.repository.user.UserRepository userRepository;
 
-    public Page<EventResponse> getEvents(String search, String city, Instant startsAfter, Instant startsBefore, Instant endsAfter, Instant endsBefore, int page) {
-        Pageable pageable = PageRequest.of(page, PG_LEN);
+    public Page<EventResponse> getEvents(String search, String city, Instant startsAfter, Instant startsBefore, Instant endsAfter, Instant endsBefore, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
         Page<EventEntity> events = eventRepository.findEvents(search, city, startsAfter, startsBefore, endsAfter, endsBefore, pageable);
 
         return events.map(EventResponse::new);

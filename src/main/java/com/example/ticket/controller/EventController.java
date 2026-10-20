@@ -36,10 +36,11 @@ public class EventController {
         @RequestParam(required = false) Instant startsBefore,
         @RequestParam(required = false) Instant endsAfter,
         @RequestParam(required = false) Instant endsBefore,
-        @RequestParam(defaultValue = "0") @Min(0) int page
+        @RequestParam(defaultValue = "0") @Min(0) int page,
+        @RequestParam(defaultValue = "12") @Min(1) int size
     ) {
         Page<EventResponse> response = eventService.getEvents(
-            search, city, startsAfter, startsBefore, endsAfter, endsBefore, page
+            search, city, startsAfter, startsBefore, endsAfter, endsBefore, page, size
         );
         return response;
     }
@@ -47,12 +48,6 @@ public class EventController {
     @GetMapping("/api/v1/events/{eventId}")
     public EventResponse getEventById(@PathVariable Long eventId) {
         EventResponse response = eventService.getEventById(eventId);
-        return response;
-    }
-
-    @GetMapping("/api/v1/events/suggest")
-    public List<EventResponse> getSuggestedEvents(@RequestParam(required = false) String search) {
-        List<EventResponse> response = eventService.getSuggestedEvents(search);
         return response;
     }
 
