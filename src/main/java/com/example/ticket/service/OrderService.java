@@ -123,12 +123,39 @@ public class OrderService {
         } else if (eventId != null) {
             page = orderRepository.findByEventId(eventId, pageable);
         } else if (status != null) {
-            page = orderRepository.findAll(pageable); // Can be filtered if needed
+            page = orderRepository.findByStatus(status, pageable);
         } else {
             page = orderRepository.findAll(pageable);
         }
 
         return page.map(OrderSummaryResponse::from);
+    }
+
+    public OrderResponse payOrder(Long orderId, Long userId) {
+        OrderEntity order = orderRepository.findByIdAndUserIdWithItems(orderId, userId)
+                .orElseThrow(() -> new ItemNotFoundException("Order not found with id: " + orderId));
+
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new OrderNotPendingException("Only PENDING orders can be paid (current status: " + order.getStatus() + ")");
+        }
+
+        if (order.getExpiresAt().isBefore(Instant.now())) {
+            order.setStatus(OrderStatus.EXPIRED);
+            orderRepository.save(order);
+            throw new HoldExpiredException("Order has expired at: " + order.getExpiresAt());
+        }
+
+        order.setStatus(OrderStatus.PAID);
+        order.setPaidAt(Instant.now());
+
+        SeatHoldEntity hold = order.getHold();
+        if (hold != null) {
+            hold.setStatus(SeatHoldStatus.CONVERTED);
+            seatHoldRepository.save(hold);
+        }
+
+        OrderEntity savedOrder = orderRepository.save(order);
+        return OrderResponse.from(savedOrder);
     }
 
     public void cancelOrder(Long orderId, Long userId) {

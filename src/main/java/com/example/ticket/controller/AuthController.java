@@ -59,9 +59,4 @@ public class AuthController {
         }
         return authService.getCurrentUser(currentUser.getId());
     }
-
-    @PostMapping("/seed-admin")
-    public AuthResponse seedAdmin(@Valid @RequestBody RegisterRequest request) {
-        return authService.seedAdmin(request);
-    }
 }
