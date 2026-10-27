@@ -2,10 +2,7 @@ package com.example.ticket.controller;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-<<<<<<< HEAD
 import org.springframework.data.domain.Sort;
-=======
->>>>>>> origin/main
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
