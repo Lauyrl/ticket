@@ -1,0 +1,1280 @@
+openapi: 3.0.3
+info:
+  title: Event Ticketing Platform API
+  description: |
+    Đặc tả RESTful API cho Hệ thống Đặt vé Sự kiện Trực tuyến (Event Ticketing Platform).
+    Bao gồm 23 endpoints tập trung vào các luồng nghiệp vụ cốt lõi:
+    - **1. Auth & Users (5 endpoints):** Đăng ký, đăng nhập, refresh token, logout, thông tin người dùng hiện tại.
+    - **2. Events (2 endpoints):** Tìm kiếm phân trang sự kiện công khai và xem chi tiết sự kiện.
+    - **3. Seats & Seat Holds (4 endpoints):** Xem sơ đồ ghế theo khu vực, giữ ghế tạm thời, hủy giữ ghế và xem danh sách ghế đang giữ còn hiệu lực.
+    - **4. Orders & Checkout (5 endpoints):** Tạo đơn hàng từ ghế đang hold, thanh toán giả lập, lịch sử đơn hàng, chi tiết đơn hàng, hủy đơn hàng pending.
+    - **5. Tickets (2 endpoints):** Danh sách vé điện tử đã mua (kèm lọc theo sự kiện và trạng thái vé) và chi tiết vé điện tử kèm mã vé ticketCode.
+    - **6. Admin Management (5 endpoints):** Quản lý sự kiện, tạo sự kiện, cập nhật sự kiện, cấu hình khu vực và tự động sinh ghế, quản lý đơn hàng toàn hệ thống.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local Development Server
+
+tags:
+  - name: 1. Auth & Users
+    description: Đăng ký, đăng nhập và quản lý phiên người dùng
+  - name: 2. Events
+    description: Duyệt, tìm kiếm và xem chi tiết sự kiện công khai
+  - name: 3. Seats & Seat Holds
+    description: Sơ đồ ghế và cơ chế giữ chỗ tạm thời (Seat Hold)
+  - name: 4. Orders & Checkout
+    description: Tạo đơn hàng, thanh toán và quản lý đơn hàng
+  - name: 5. Tickets
+    description: Quản lý và tra cứu vé điện tử đã mua
+  - name: 6. Admin Management
+    description: Nghiệp vụ quản trị hệ thống (yêu cầu quyền ADMIN)
+
+paths:
+  # ---------------------------------------------------------------------------
+  # 1. AUTH & USERS (5 Endpoints)
+  # ---------------------------------------------------------------------------
+  /api/v1/auth/register:
+    post:
+      tags:
+        - 1. Auth & Users
+      summary: Đăng ký tài khoản khách hàng mới
+      description: Tạo tài khoản mới với role mặc định là CUSTOMER.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Đăng ký thành công, cấp Access & Refresh Token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Dữ liệu gửi lên không hợp lệ
+        '409':
+          description: Email đã tồn tại
+
+  /api/v1/auth/login:
+    post:
+      tags:
+        - 1. Auth & Users
+      summary: Đăng nhập bằng Email/Password
+      description: Xác thực người dùng và cấp cặp JWT Access Token & Refresh Token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Đăng nhập thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Email hoặc mật khẩu không chính xác
+
+  /api/v1/auth/refresh:
+    post:
+      tags:
+        - 1. Auth & Users
+      summary: Làm mới Access Token bằng Refresh Token
+      description: Nhận Refresh Token hợp lệ và trả về cặp token mới.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Cấp token mới thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Refresh Token không hợp lệ hoặc đã hết hạn
+
+  /api/v1/auth/logout:
+    post:
+      tags:
+        - 1. Auth & Users
+      summary: Đăng xuất (xóa phiên làm việc)
+      description: Client xóa token ở phía lưu trữ cục bộ.
+      responses:
+        '200':
+          description: Đăng xuất thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Logged out successfully
+
+  /api/v1/auth/me:
+    get:
+      tags:
+        - 1. Auth & Users
+      summary: Lấy thông tin tài khoản người dùng đang đăng nhập
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Thông tin tài khoản người dùng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: Chưa xác thực
+
+  # ---------------------------------------------------------------------------
+  # 2. EVENTS (2 Endpoints)
+  # ---------------------------------------------------------------------------
+  /api/v1/events:
+    get:
+      tags:
+        - 2. Events
+      summary: Danh sách sự kiện (tìm kiếm, phân trang)
+      parameters:
+        - name: search
+          in: query
+          description: Từ khóa tìm kiếm theo tên sự kiện
+          required: false
+          schema:
+            type: string
+        - name: city
+          in: query
+          description: Lọc theo thành phố tổ chức
+          required: false
+          schema:
+            type: string
+        - name: startsAfter
+          in: query
+          description: Lọc sự kiện bắt đầu sau thời điểm này (ISO-8601)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: startsBefore
+          in: query
+          description: Lọc sự kiện bắt đầu trước thời điểm này (ISO-8601)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          description: 'Số trang (bắt đầu từ 0, mặc định: 0)'
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          description: 'Số phần tử trên mỗi trang (mặc định: 12)'
+          required: false
+          schema:
+            type: integer
+            default: 12
+      responses:
+        '200':
+          description: Danh sách sự kiện phân trang
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageEventResponse'
+
+  /api/v1/events/{eventId}:
+    get:
+      tags:
+        - 2. Events
+      summary: Chi tiết thông tin sự kiện
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Chi tiết sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '404':
+          description: Sự kiện không tồn tại
+
+  # ---------------------------------------------------------------------------
+  # 3. SEATS & SEAT HOLDS (4 Endpoints)
+  # ---------------------------------------------------------------------------
+  /api/v1/events/{eventId}/seats:
+    get:
+      tags:
+        - 3. Seats & Seat Holds
+      summary: Lấy sơ đồ ghế theo khu vực
+      description: Sơ đồ ghế gồm zone → hàng → ghế kèm trạng thái AVAILABLE, HELD, SOLD.
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Danh sách khu vực ghế kèm trạng thái từng ghế
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeatZoneResponse'
+        '404':
+          description: Sự kiện không tồn tại
+
+  /api/v1/events/{eventId}/seats/{seatId}/hold:
+    post:
+      tags:
+        - 3. Seats & Seat Holds
+      summary: Giữ ghế tạm thời
+      description: Giữ ghế với UNIQUE INDEX chống tranh chấp, tự hết hạn sau holdDurationMinutes.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: seatId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Giữ ghế thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeatHoldResponse'
+        '400':
+          description: Vượt quá số ghế tối đa cho phép mỗi người dùng
+        '401':
+          description: Chưa xác thực
+        '404':
+          description: Ghế hoặc sự kiện không tồn tại
+        '409':
+          description: Ghế đã có người khác giữ hoặc đã bán
+    delete:
+      tags:
+        - 3. Seats & Seat Holds
+      summary: Hủy giữ ghế thủ công
+      description: Giải phóng ghế ngay lập tức khỏi trạng thái giữ tạm thời.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: seatId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Hủy giữ ghế thành công
+        '401':
+          description: Chưa xác thực
+        '409':
+          description: Không tìm thấy hold ACTIVE của người dùng trên ghế này
+
+  /api/v1/events/{eventId}/holds:
+    get:
+      tags:
+        - 3. Seats & Seat Holds
+      summary: Danh sách ghế đang giữ còn hiệu lực (ACTIVE) của user trong sự kiện
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Danh sách seat holds đang ACTIVE
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeatHoldResponse'
+        '401':
+          description: Chưa xác thực
+
+  # ---------------------------------------------------------------------------
+  # 4. ORDERS & CHECKOUT (5 Endpoints)
+  # ---------------------------------------------------------------------------
+  /api/v1/orders:
+    post:
+      tags:
+        - 4. Orders & Checkout
+      summary: Tạo đơn hàng mới từ các ghế đang hold
+      description: Chuyển ghế đang hold sang đơn hàng trạng thái PENDING.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Tạo đơn hàng thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Hold đã hết hạn hoặc không hợp lệ
+        '401':
+          description: Chưa xác thực
+        '409':
+          description: Hold đã được tạo đơn hàng trước đó
+
+  /api/v1/orders/{orderId}/pay:
+    post:
+      tags:
+        - 4. Orders & Checkout
+      summary: Xác nhận thanh toán giả lập
+      description: Chuyển đơn hàng sang PAID, chuyển SeatHold sang CONVERTED và sinh danh sách vé kèm ticketCode.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Thanh toán thành công, đơn hàng ở trạng thái PAID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Đơn hàng không ở trạng thái PENDING hoặc đã hết hạn
+        '401':
+          description: Chưa xác thực
+        '404':
+          description: Đơn hàng không tồn tại
+
+  /api/v1/orders/my:
+    get:
+      tags:
+        - 4. Orders & Checkout
+      summary: Lịch sử đơn hàng của người dùng hiện tại
+      description: Sắp xếp theo ngày tạo mới nhất trước.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          description: Lọc theo trạng thái đơn hàng (PENDING, PAID, CANCELLED)
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, PAID, CANCELLED]
+        - name: page
+          in: query
+          description: 'Số trang (mặc định: 0)'
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          description: 'Số phần tử (mặc định: 10)'
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Danh sách đơn hàng phân trang
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageOrderSummaryResponse'
+        '401':
+          description: Chưa xác thực
+
+  /api/v1/orders/{orderId}:
+    get:
+      tags:
+        - 4. Orders & Checkout
+      summary: Chi tiết đơn hàng
+      description: Thông tin ghế, giá vé, trạng thái thanh toán và hạn thanh toán.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Chi tiết đơn hàng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          description: Chưa xác thực
+        '404':
+          description: Đơn hàng không tồn tại hoặc không thuộc người dùng hiện tại
+    delete:
+      tags:
+        - 4. Orders & Checkout
+      summary: Hủy đơn hàng PENDING và tự động giải phóng ghế tương ứng
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Hủy đơn hàng thành công
+        '400':
+          description: Đơn hàng không ở trạng thái PENDING
+        '401':
+          description: Chưa xác thực
+        '404':
+          description: Đơn hàng không tồn tại
+
+  # ---------------------------------------------------------------------------
+  # 5. TICKETS (2 Endpoints)
+  # ---------------------------------------------------------------------------
+  /api/v1/tickets/my:
+    get:
+      tags:
+        - 5. Tickets
+      summary: Danh sách vé điện tử đã mua của người dùng
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: query
+          description: Lọc theo mã sự kiện
+          required: false
+          schema:
+            type: integer
+            format: int64
+        - name: status
+          in: query
+          description: Lọc theo trạng thái vé (VALID, USED)
+          required: false
+          schema:
+            type: string
+            enum: [VALID, USED]
+        - name: page
+          in: query
+          description: 'Số trang (mặc định: 0)'
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          description: 'Số phần tử (mặc định: 10)'
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Danh sách vé điện tử phân trang
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageTicketResponse'
+        '401':
+          description: Chưa xác thực
+
+  /api/v1/tickets/{ticketId}:
+    get:
+      tags:
+        - 5. Tickets
+      summary: Chi tiết vé điện tử
+      description: Thông tin sự kiện, khu vực, số hàng, số ghế và mã vé ticketCode.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Chi tiết vé điện tử
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketResponse'
+        '401':
+          description: Chưa xác thực
+        '404':
+          description: Vé không tồn tại
+
+  # ---------------------------------------------------------------------------
+  # 6. ADMIN MANAGEMENT (5 Endpoints)
+  # ---------------------------------------------------------------------------
+  /api/v1/admin/events:
+    get:
+      tags:
+        - 6. Admin Management
+      summary: Danh sách tất cả sự kiện hệ thống
+      description: Bao gồm cả sự kiện DRAFT, ON_SALE, CANCELLED. Yêu cầu quyền ADMIN.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          description: Tìm kiếm theo tên sự kiện
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Lọc theo trạng thái sự kiện
+          required: false
+          schema:
+            type: string
+            enum: [UPCOMING, ON_SALE, ENDED, CANCELLED]
+        - name: page
+          in: query
+          description: 'Số trang (mặc định: 0)'
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          description: 'Số phần tử (mặc định: 12)'
+          required: false
+          schema:
+            type: integer
+            default: 12
+      responses:
+        '200':
+          description: Danh sách sự kiện quản trị
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageEventResponse'
+        '401':
+          description: Chưa xác thực
+        '403':
+          description: Không đủ quyền (yêu cầu ROLE_ADMIN)
+    post:
+      tags:
+        - 6. Admin Management
+      summary: Tạo sự kiện mới
+      description: Tạo sự kiện mới, hỗ trợ cấu hình kèm zones và seats. Yêu cầu quyền ADMIN.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventRequest'
+      responses:
+        '201':
+          description: Tạo sự kiện thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          description: Dữ liệu không hợp lệ
+        '401':
+          description: Chưa xác thực
+        '403':
+          description: Không đủ quyền (yêu cầu ROLE_ADMIN)
+
+  /api/v1/admin/events/{eventId}:
+    patch:
+      tags:
+        - 6. Admin Management
+      summary: Cập nhật thông tin sự kiện hoặc thay đổi trạng thái vòng đời
+      description: Cập nhật thông tin sự kiện hoặc chuyển trạng thái sang ON_SALE, CANCELLED. Yêu cầu quyền ADMIN.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEventRequest'
+      responses:
+        '200':
+          description: Cập nhật thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          description: Dữ liệu hoặc chuyển đổi trạng thái không hợp lệ
+        '401':
+          description: Chưa xác thực
+        '403':
+          description: Không đủ quyền (yêu cầu ROLE_ADMIN)
+        '404':
+          description: Sự kiện không tồn tại
+
+  /api/v1/admin/events/{eventId}/seat-zones:
+    post:
+      tags:
+        - 6. Admin Management
+      summary: Cấu hình khu vực ghế và tự động sinh ghế
+      description: Cấu hình tên zone, giá tiền, danh sách ghế. Yêu cầu quyền ADMIN.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/CreateSeatZoneRequest'
+      responses:
+        '201':
+          description: Cấu hình khu vực và tạo ghế thành công
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SeatZoneResponse'
+        '400':
+          description: Dữ liệu không hợp lệ
+        '401':
+          description: Chưa xác thực
+        '403':
+          description: Không đủ quyền (yêu cầu ROLE_ADMIN)
+        '404':
+          description: Sự kiện không tồn tại
+
+  /api/v1/admin/orders:
+    get:
+      tags:
+        - 6. Admin Management
+      summary: Quản lý toàn bộ đơn hàng trong hệ thống
+      description: Danh sách đơn hàng toàn hệ thống, hỗ trợ lọc theo eventId và status. Yêu cầu quyền ADMIN.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: eventId
+          in: query
+          description: Lọc theo mã sự kiện
+          required: false
+          schema:
+            type: integer
+            format: int64
+        - name: status
+          in: query
+          description: Lọc theo trạng thái đơn hàng (PENDING, PAID, CANCELLED)
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, PAID, CANCELLED]
+        - name: page
+          in: query
+          description: 'Số trang (mặc định: 0)'
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          description: 'Số phần tử (mặc định: 10)'
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Danh sách đơn hàng toàn hệ thống phân trang
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageOrderSummaryResponse'
+        '401':
+          description: Chưa xác thực
+        '403':
+          description: Không đủ quyền (yêu cầu ROLE_ADMIN)
+
+# ---------------------------------------------------------------------------
+# COMPONENTS & SCHEMAS
+# ---------------------------------------------------------------------------
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+        - fullName
+      properties:
+        email:
+          type: string
+          format: email
+          example: customer@example.com
+        password:
+          type: string
+          minLength: 6
+          example: password123
+        fullName:
+          type: string
+          example: Nguyen Van A
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: customer@example.com
+        password:
+          type: string
+          example: password123
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        refreshToken:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        tokenType:
+          type: string
+          example: Bearer
+        user:
+          $ref: '#/components/schemas/UserResponse'
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        email:
+          type: string
+          format: email
+          example: customer@example.com
+        fullName:
+          type: string
+          example: Nguyen Van A
+        role:
+          type: string
+          enum: [CUSTOMER, ADMIN]
+          example: CUSTOMER
+
+    EventResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        name:
+          type: string
+          example: Live Concert 2026
+        description:
+          type: string
+          example: Đại nhạc hội trực tiếp
+        category:
+          type: string
+          example: Music
+        venue:
+          type: string
+          example: Sân vận động Mỹ Đình
+        city:
+          type: string
+          example: Hà Nội
+        startsAt:
+          type: string
+          format: date-time
+          example: 2026-11-20T19:00:00Z
+        endsAt:
+          type: string
+          format: date-time
+          example: 2026-11-20T22:00:00Z
+        status:
+          type: string
+          enum: [UPCOMING, ON_SALE, ENDED, CANCELLED]
+          example: ON_SALE
+        maxSeatsPerUser:
+          type: integer
+          example: 4
+        holdDurationMinutes:
+          type: integer
+          example: 10
+        totalSeats:
+          type: integer
+          example: 50000
+
+    CreateEventRequest:
+      type: object
+      required:
+        - name
+        - venue
+        - startsAt
+        - endsAt
+        - totalSeats
+      properties:
+        name:
+          type: string
+          example: Live Concert 2026
+        description:
+          type: string
+          example: Đại nhạc hội trực tiếp
+        category:
+          type: string
+          example: Music
+        venue:
+          type: string
+          example: Sân vận động Mỹ Đình
+        city:
+          type: string
+          example: Hà Nội
+        startsAt:
+          type: string
+          format: date-time
+          example: 2026-11-20T19:00:00Z
+        endsAt:
+          type: string
+          format: date-time
+          example: 2026-11-20T22:00:00Z
+        totalSeats:
+          type: integer
+          example: 50000
+        maxSeatsPerUser:
+          type: integer
+          default: 4
+          example: 4
+        holdDurationMinutes:
+          type: integer
+          default: 10
+          example: 10
+        zones:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreateSeatZoneRequest'
+
+    UpdateEventRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        venue:
+          type: string
+        city:
+          type: string
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+        totalSeats:
+          type: integer
+        maxSeatsPerUser:
+          type: integer
+        holdDurationMinutes:
+          type: integer
+        status:
+          type: string
+          enum: [UPCOMING, ON_SALE, ENDED, CANCELLED]
+
+    CreateSeatZoneRequest:
+      type: object
+      required:
+        - name
+        - price
+        - seats
+      properties:
+        name:
+          type: string
+          example: VIP Zone
+        price:
+          type: number
+          format: double
+          example: 1500000.00
+        seats:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreateSeatRequest'
+
+    CreateSeatRequest:
+      type: object
+      required:
+        - rowIndex
+        - seatNumber
+      properties:
+        rowIndex:
+          type: integer
+          example: 1
+        seatNumber:
+          type: integer
+          example: 1
+
+    SeatZoneResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        name:
+          type: string
+          example: VIP Zone
+        price:
+          type: number
+          format: double
+          example: 1500000.00
+        seats:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeatResponse'
+
+    SeatResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 101
+        rowIndex:
+          type: integer
+          example: 1
+        seatNumber:
+          type: integer
+          example: 5
+        status:
+          type: string
+          enum: [AVAILABLE, HELD, SOLD]
+          example: AVAILABLE
+
+    SeatHoldResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 55
+        eventId:
+          type: integer
+          format: int64
+          example: 1
+        userId:
+          type: integer
+          format: int64
+          example: 1
+        seatId:
+          type: integer
+          format: int64
+          example: 101
+        status:
+          type: string
+          enum: [ACTIVE, EXPIRED, RELEASED, CONVERTED]
+          example: ACTIVE
+        expiresAt:
+          type: string
+          format: date-time
+          example: 2026-11-20T19:10:00Z
+
+    CreateOrderRequest:
+      type: object
+      required:
+        - holdId
+      properties:
+        holdId:
+          type: integer
+          format: int64
+          example: 55
+
+    OrderResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 201
+        orderCode:
+          type: string
+          example: ORD-20261120-001
+        eventId:
+          type: integer
+          format: int64
+          example: 1
+        eventName:
+          type: string
+          example: Live Concert 2026
+        status:
+          type: string
+          enum: [PENDING, PAID, CANCELLED]
+          example: PENDING
+        totalAmount:
+          type: number
+          format: double
+          example: 1500000.00
+        expiresAt:
+          type: string
+          format: date-time
+        paidAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItemResponse'
+
+    OrderSummaryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 201
+        orderCode:
+          type: string
+          example: ORD-20261120-001
+        eventId:
+          type: integer
+          format: int64
+          example: 1
+        eventName:
+          type: string
+          example: Live Concert 2026
+        status:
+          type: string
+          enum: [PENDING, PAID, CANCELLED]
+          example: PAID
+        totalAmount:
+          type: number
+          format: double
+          example: 1500000.00
+        expiresAt:
+          type: string
+          format: date-time
+        paidAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    OrderItemResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 301
+        seatId:
+          type: integer
+          format: int64
+          example: 101
+        zoneName:
+          type: string
+          example: VIP Zone
+        rowLabel:
+          type: string
+          example: '1'
+        seatNumber:
+          type: integer
+          example: 5
+        unitPrice:
+          type: number
+          format: double
+          example: 1500000.00
+
+    TicketResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 301
+        ticketCode:
+          type: string
+          example: ORD-20261120-001-T301
+        orderId:
+          type: integer
+          format: int64
+          example: 201
+        orderCode:
+          type: string
+          example: ORD-20261120-001
+        eventId:
+          type: integer
+          format: int64
+          example: 1
+        eventName:
+          type: string
+          example: Live Concert 2026
+        venue:
+          type: string
+          example: Sân vận động Mỹ Đình
+        city:
+          type: string
+          example: Hà Nội
+        eventStartsAt:
+          type: string
+          format: date-time
+        zoneName:
+          type: string
+          example: VIP Zone
+        rowLabel:
+          type: string
+          example: '1'
+        seatNumber:
+          type: integer
+          example: 5
+        unitPrice:
+          type: number
+          format: double
+          example: 1500000.00
+        status:
+          type: string
+          enum: [VALID, USED]
+          example: VALID
+        purchasedAt:
+          type: string
+          format: date-time
+
+    PageEventResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventResponse'
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        size:
+          type: integer
+        number:
+          type: integer
+
+    PageOrderSummaryResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderSummaryResponse'
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        size:
+          type: integer
+        number:
+          type: integer
+
+    PageTicketResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketResponse'
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        size:
+          type: integer
+        number:
+          type: integer
