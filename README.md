@@ -1,149 +1,208 @@
-## Overview
+# Ticket Rush: Hệ thống đặt vé sự kiện trực tuyến
 
-Hệ thống đặt vé sự kiện trực tuyến gồm 2 tác nhân chính. **Khách hàng** tìm kiếm sự kiện, chọn ghế, giữ ghế tạm thời, đặt đơn, thanh toán và quản lý vé điện tử. **Quản trị viên** tạo và quản lý sự kiện, thiết kế khu vực và sơ đồ ghế, giám sát đơn hàng toàn hệ thống.
+REST API đặt vé sự kiện, xây dựng bằng Spring Boot và PostgreSQL. 
 
-### Nghiệp vụ cốt lõi
+## 1. Bài toán
 
-**Luồng đặt vé của khách hàng:**
-1. **Xác thực** - Người dùng đăng ký hoặc đăng nhập bằng email-password để nhận cặp JWT Access Token và Refresh Token. Sau khi xác thực, `userId` luôn được trích xuất từ token, không nhận từ client body/query.
-2. **Tìm kiếm sự kiện** - Người dùng tìm kiếm sự kiện công khai với thanh tìm kiếm và bộ lọc (tên sự kiện, thành phố, khoảng thời gian). Các sự kiện được hiển thị dưới dạng phân trang.
-3. **Chọn ghế (Seat Hold)** - Sau khi chọn sự kiện, người dùng xem sơ đồ ghế (nhóm theo zone → row → seat) và giữ ghế tạm thời (`SeatHold`). Mỗi ghế chỉ cho phép 1 hold `ACTIVE` hoặc `CONVERTED` tại một thời điểm (đảm bảo bằng `UNIQUE INDEX` trong DB, chống race condition). Hold tự động hết hạn sau thời gian `holdDurationMinutes` của sự kiện (khoảng 5-10 phút); khi có người hold mới thì lazy-check và release hold cũ.
-4. **Tạo đơn hàng (Order)** - Người dùng xác nhận giỏ hàng, hệ thống tạo `Order` từ `SeatHold` đang `ACTIVE`. Đơn hàng ở trạng thái `PENDING` và có thời hạn thanh toán tương ứng.
-5. **Thanh toán giả lập (Checkout)** - Người dùng xác nhận thanh toán (`POST /api/v1/orders/{orderId}/pay`), hệ thống chuyển Order sang `PAID`, chuyển trạng thái `SeatHold` sang `CONVERTED` (đã bán), sinh `Ticket` kèm **mã vé điện tử (`ticketCode`)** duy nhất cho từng ghế.
-6. **Quản lý vé** - Người dùng xem danh sách vé điện tử đã mua và chi tiết từng vé (thông tin sự kiện, khu vực, hàng, số ghế và mã vé điện tử `ticketCode`).
+Khách hàng cần mua vé cho các sự kiện (hòa nhạc, triển lãm, hội thảo...) với sơ đồ ghế cụ thể. Bài toán có ba khó khăn chính:
 
-**Nghiệp vụ Admin:**
-- Tạo và quản lý sự kiện: thiết lập thông tin, danh mục, thời gian, địa điểm, sức chứa tối đa và trạng thái vòng đời sự kiện (`UPCOMING` → `ON_SALE` → `ENDED` / `CANCELLED`).
-- Thiết kế sơ đồ ghế: cấu hình các khu vực ghế (`seat-zones`) với tên, giá vé, số hàng và số ghế mỗi hàng. Hệ thống tự động sinh bản ghi ghế tương ứng.
-- Quản lý đơn hàng toàn hệ thống: xem danh sách đơn hàng, lọc theo sự kiện và trạng thái đơn hàng (`PENDING`, `PAID`, `EXPIRED`, `CANCELLED`).
+- **Tranh chấp ghế:** nhiều người có thể cùng chọn một ghế trong cùng thời điểm. Hệ thống phải đảm bảo mỗi ghế chỉ thuộc về một người.
+- **Giữ ghế tạm thời:** người dùng chọn ghế nhưng chưa thanh toán ngay. Ghế phải được giữ trong một khoảng thời gian, rồi tự trả về nếu không thanh toán.
+- **Vé điện tử:** sau khi thanh toán, mỗi ghế phải có một vé riêng, có mã để đối soát khi vào sự kiện.
 
-**Notes:**
-- `userId` luôn lấy từ token xác thực, không nhận từ request body/query
-- Trạng thái ghế được suy ra từ bảng `seat_holds`, không lưu cứng trên `event_seats`
+Hệ thống giải quyết ba vấn đề này bằng ràng buộc trong database, thời hạn giữ ghế và luồng đơn hàng tách biệt với vé.
 
----
+## 2. Tác nhân và nghiệp vụ
 
-# Endpoints
+Hệ thống có hai tác nhân:
 
-## 1. Auth & Users (5 Endpoints)
-| Method | Endpoint | Mô tả | Auth | Query params |
-|:---:|---|---|:---:|---|
-| `POST` | `/api/v1/auth/register` | Đăng ký tài khoản khách hàng mới | Public | — |
-| `POST` | `/api/v1/auth/login` | Đăng nhập bằng Email/Password, cấp Access & Refresh Token | Public | — |
-| `POST` | `/api/v1/auth/refresh` | Làm mới Access Token bằng Refresh Token | Public | — |
-| `POST` | `/api/v1/auth/logout` | Đăng xuất (xóa phiên làm việc) | Public | — |
-| `GET` | `/api/v1/auth/me` | Lấy thông tin tài khoản người dùng đang đăng nhập | Authenticated | — |
+- **Khách hàng:** tìm sự kiện, chọn ghế, giữ ghế, tạo đơn, thanh toán, xem vé.
+- **Quản trị viên (ADMIN):** tạo và cập nhật sự kiện, cấu hình khu vực ghế, xem toàn bộ đơn hàng.
 
-**Notes:**
-- `POST /api/v1/auth/register`: Trả về `201 Created`; email đã tồn tại → `409 Conflict`
-- `POST /api/v1/auth/login`: Email hoặc mật khẩu không hợp lệ → `401 Unauthorized`
-- `POST /api/v1/auth/refresh`: Refresh token không hợp lệ hoặc hết hạn → `401 Unauthorized`
-- `POST /api/v1/auth/logout`: JWT stateless, client xóa token ở local. Trả về thông báo thành công
-- `GET /api/v1/auth/me`: User chưa xác thực → `401 Unauthorized`
+### Luồng mua vé
 
----
+1. **Xác thực:** người dùng đăng ký hoặc đăng nhập bằng email và mật khẩu, nhận Access Token và Refresh Token (JWT). Mọi thao tác sau đó lấy `userId` từ token, không nhận từ body hay query.
+2. **Tìm sự kiện:** tìm công khai theo tên, thành phố, thời gian bắt đầu, có phân trang.
+3. **Chọn và giữ ghế:** xem sơ đồ ghế theo khu vực (zone, hàng, ghế) với trạng thái `AVAILABLE`, `HELD`, `SOLD`. Người dùng giữ ghế tạm thời, mỗi ghế chỉ có một hold `ACTIVE` hoặc `CONVERTED` tại một thời điểm.
+4. **Tạo đơn:** từ các hold còn hiệu lực, hệ thống tạo đơn hàng ở trạng thái `PENDING`.
+5. **Thanh toán giả lập:** xác nhận thanh toán chuyển đơn sang `PAID`, hold sang `CONVERTED`, và sinh vé cho từng ghế.
+6. **Xem vé:** người dùng xem danh sách và chi tiết vé của chính mình.
 
-## 2. Events (2 Endpoints)
-| Method | Endpoint | Mô tả | Auth | Query params |
-|:---:|---|---|:---:|---|
-| `GET` | `/api/v1/events` | Danh sách sự kiện (tìm kiếm, phân trang) | Public | `search`: từ khóa tên sự kiện<br>`city`: thành phố<br>`startsAfter`, `startsBefore`: lọc thời điểm bắt đầu<br>`page`: số trang (default: 0)<br>`size`: số phần tử (default: 12) |
-| `GET` | `/api/v1/events/{eventId}` | Chi tiết thông tin sự kiện (thời gian, địa điểm, mô tả, chính sách giữ ghế) | Public | — |
+### Quy tắc nghiệp vụ
 
-**Notes:**
-- `GET /api/v1/events`: Kích thước trang mặc định là 12, hỗ trợ tìm kiếm theo tên và lọc theo thành phố / thời gian bắt đầu
-- `GET /api/v1/events/{eventId}`: Sự kiện không tồn tại → `404 Not Found`
+- Một ghế chỉ có tối đa một hold `ACTIVE` hoặc `CONVERTED`. Ràng buộc này nằm ở UNIQUE INDEX `ux_seat_holds_taken_seat` trong database, nên không phụ thuộc vào thứ tự xử lý trong code.
+- Hold có thời hạn theo `holdDurationMinutes` của sự kiện (mặc định 10 phút). Hold `ACTIVE` đã quá hạn được coi là ghế trống.
+- Mỗi người dùng giữ tối đa `maxSeatsPerUser` ghế trong một sự kiện.
+- Trạng thái ghế không lưu trực tiếp trên bảng `event_seats`, mà suy ra từ bảng `seat_holds`.
+- Truy cập vé hoặc đơn không thuộc người dùng trả `404 Not Found`, không trả `403`, để không lộ việc tài nguyên có tồn tại.
 
----
+### Vé điện tử
 
-## 3. Seats & Seat Holds (4 Endpoints)
-| Method | Endpoint | Mô tả | Auth | Query params |
-|:---:|---|---|:---:|---|
-| `GET` | `/api/v1/events/{eventId}/seats` | Lấy sơ đồ ghế theo khu vực (zone → hàng → ghế kèm trạng thái `AVAILABLE`, `HELD`, `SOLD`) | Public / Authenticated | — |
-| `POST` | `/api/v1/events/{eventId}/seats/{seatId}/hold` | Giữ ghế tạm thời (chống tranh chấp với UNIQUE INDEX, tự hết hạn sau `holdDurationMinutes`) | Authenticated | — |
-| `DELETE` | `/api/v1/events/{eventId}/seats/{seatId}/hold` | Hủy giữ ghế thủ công (giải phóng ghế ngay lập tức) | Authenticated | — |
-| `GET` | `/api/v1/events/{eventId}/holds` | Danh sách ghế đang giữ còn hiệu lực (`ACTIVE`) của user trong sự kiện | Authenticated | — |
+- Vé được sinh khi đơn hàng chuyển sang `PAID`, mỗi ghế trong đơn một vé.
+- Mã vé có dạng `{orderCode}-T{itemId}`, duy nhất trong hệ thống, dùng để đối soát khi vào sự kiện.
+- Danh sách vé chỉ liệt kê vé của đơn đã thanh toán.
+- Trạng thái `USED` (đã check-in) được khai báo trong đặc tả nhưng hệ thống chưa có chức năng check-in. Vì vậy lọc `status=USED` hiện trả danh sách rỗng.
 
-**Notes:**
-- Trạng thái khả dụng của ghế được suy ra từ bảng `seat_holds`. Hold `ACTIVE` mà quá `expires_at` được coi là ghế trống.
-- `POST .../hold`: Chống tranh chấp bằng UNIQUE INDEX `ux_seat_holds_taken_seat` (chỉ cho phép 1 hold `ACTIVE` hoặc `CONVERTED` trên mỗi ghế). Ghế đã có người giữ hoặc đã bán → `409 Conflict`. Vượt quá số ghế tối đa/user (`maxSeatsPerUser`) → `400 Bad Request`.
-- `DELETE .../hold`: Thành công → `204 No Content`. Không có hold `ACTIVE` của user trên ghế đó → `409 Conflict`.
+## 3. Đặc tả API
 
----
+Đặc tả đầy đủ nằm trong file `openapi.yaml` ở thư mục gốc, có thể mở bằng extension Swagger Preview của VS Code hoặc dán lên editor.swagger.io. Bảng dưới đây là tóm tắt.
 
-## 4. Orders & Checkout (5 Endpoints)
-| Method | Endpoint | Mô tả | Auth | Query params |
-|:---:|---|---|:---:|---|
-| `POST` | `/api/v1/orders` | Tạo đơn hàng mới từ các ghế đang hold (chuyển sang `PENDING`) | Authenticated | — |
-| `POST` | `/api/v1/orders/{orderId}/pay` | Xác nhận thanh toán giả lập (chuyển sang `PAID`, sinh danh sách vé kèm `ticketCode`) | Authenticated | — |
-| `GET` | `/api/v1/orders/my` | Lịch sử đơn hàng của người dùng hiện tại (sắp xếp mới nhất trước) | Authenticated | `status`: lọc theo trạng thái (`PENDING`, `PAID`, `CANCELLED`)<br>`page`: (default: 0)<br>`size`: (default: 10) |
-| `GET` | `/api/v1/orders/{orderId}` | Chi tiết đơn hàng (thông tin ghế, giá vé, trạng thái thanh toán, hạn thanh toán) | Authenticated | — |
-| `DELETE` | `/api/v1/orders/{orderId}` | Hủy đơn hàng `PENDING` và tự động giải phóng ghế tương ứng | Authenticated | — |
+| Nhóm | Endpoint | Quyền |
+|---|---|---|
+| Auth | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout` | Public |
+| Auth | `GET /api/v1/auth/me` | Authenticated |
+| Events | `GET /api/v1/events` (`search`, `city`, `startsAfter`, `startsBefore`, `page`, `size` mặc định 12) | Public |
+| Events | `GET /api/v1/events/{eventId}` | Public |
+| Seats | `GET /api/v1/events/{eventId}/seats` | Public / Authenticated |
+| Seats | `POST` và `DELETE /api/v1/events/{eventId}/seats/{seatId}/hold` | Authenticated |
+| Seats | `GET /api/v1/events/{eventId}/holds` | Authenticated |
+| Orders | `POST /api/v1/orders`, `POST /api/v1/orders/{orderId}/pay` | Authenticated |
+| Orders | `GET /api/v1/orders/my` (`status`, `page`, `size` mặc định 10) | Authenticated |
+| Orders | `GET` và `DELETE /api/v1/orders/{orderId}` | Authenticated |
+| Tickets | `GET /api/v1/tickets/my` (`eventId`, `status` là `VALID` hoặc `USED`, `page`, `size` mặc định 10) | Authenticated |
+| Tickets | `GET /api/v1/tickets/{ticketId}` | Authenticated, chỉ chủ vé |
+| Admin | `GET` và `POST /api/v1/admin/events` | ADMIN |
+| Admin | `PATCH /api/v1/admin/events/{eventId}` | ADMIN |
+| Admin | `POST /api/v1/admin/events/{eventId}/seat-zones` | ADMIN |
+| Admin | `GET /api/v1/admin/orders` (`eventId`, `status`, `page`, `size` mặc định 10) | ADMIN |
 
-**Notes:**
-- `POST /api/v1/orders`: Trả về `201 Created`. Seat hold phải thuộc về user hiện tại, đang `ACTIVE` và chưa hết hạn.
-- `POST /api/v1/orders/{orderId}/pay`: Chuyển Order sang `PAID`, cập nhật `paidAt` và chuyển `SeatHold` sang `CONVERTED`. Tự động sinh danh sách vé kèm `ticketCode`. Đơn hàng không ở trạng thái `PENDING` hoặc đã quá hạn → `400 Bad Request`.
-- `GET /api/v1/orders/my`: Sắp xếp theo `createdAt` giảm dần.
-- `GET /api/v1/orders/{orderId}`: Đơn hàng không tồn tại hoặc không thuộc user hiện tại → `404 Not Found`. Nếu đơn hàng `PENDING` đã hết hạn, lazy update trạng thái thành `EXPIRED`.
-- `DELETE /api/v1/orders/{orderId}`: Chỉ hủy được đơn hàng `PENDING`. Thành công trả về `204 No Content`.
+Đường dẫn `/api/v1/admin/**` yêu cầu quyền ADMIN. Các endpoint khác yêu cầu Access Token trong header `Authorization: Bearer <token>`, nếu không có token trả `401`.
 
----
+### Mã lỗi
 
-## 5. Tickets (2 Endpoints)
-| Method | Endpoint | Mô tả | Auth | Query params |
-|:---:|---|---|:---:|---|
-| `GET` | `/api/v1/tickets/my` | Danh sách vé điện tử đã mua của người dùng | Authenticated | `eventId`: lọc theo sự kiện<br>`status`: lọc theo trạng thái vé (`VALID`, `USED`)<br>`page`: (default: 0)<br>`size`: (default: 10) |
-| `GET` | `/api/v1/tickets/{ticketId}` | Chi tiết vé điện tử (sự kiện, khu vực, số hàng, số ghế, mã vé `ticketCode`) | Authenticated | — |
+| Tình huống | Mã |
+|---|---|
+| Sai email hoặc mật khẩu, token không hợp lệ | 401 |
+| Tài nguyên không tồn tại hoặc không thuộc người dùng | 404 |
+| Email đã tồn tại, ghế đã được giữ hoặc đã bán, đơn đã tồn tại | 409 |
+| Vượt quá số ghế tối đa, hold hết hạn, đơn không ở trạng thái cho phép, tham số sai | 400 |
 
-**Notes:**
-- Vé điện tử được tạo tự động khi đơn hàng được thanh toán thành công (`PAID`).
-- Mã vé điện tử (`ticketCode`) là duy nhất theo mẫu `{orderCode}-T{itemId}`, dùng để định danh và đối soát vé khi tham dự sự kiện.
-- Endpoint `GET /api/v1/tickets/{ticketId}` cho phép chủ sở hữu vé (hoặc quản trị viên) xem đầy đủ thông tin vé điện tử.
+## 4. Kiến trúc
 
----
+Hệ thống theo kiến trúc phân tầng. Mỗi tầng chỉ gọi tầng ngay bên dưới:
 
-## 6. Admin Management (5 Endpoints)
-> Tất cả endpoint `/api/v1/admin/**` đều yêu cầu quyền **ADMIN**.
+```
+Client
+  -> Security (JwtAuthenticationFilter: xác thực token, đặt người dùng vào SecurityContext)
+  -> Controller (nhận request, khai báo đường dẫn, chuyển cho service)
+  -> Service (quy tắc nghiệp vụ, không import Spring Web hay JPA)
+  -> Repository (Spring Data JPA, truy vấn database)
+  -> PostgreSQL (schema do Flyway quản lý)
+```
 
-| Method | Endpoint | Mô tả | Query params |
-|:---:|---|---|---|
-| `GET` | `/api/v1/admin/events` | Danh sách tất cả sự kiện hệ thống (bao gồm `DRAFT`, `ON_SALE`, `CANCELLED`) | `search`: tìm theo tên<br>`status`: lọc trạng thái<br>`page`: (default: 0)<br>`size`: (default: 12) |
-| `POST` | `/api/v1/admin/events` | Tạo sự kiện mới | — |
-| `PATCH` | `/api/v1/admin/events/{eventId}` | Cập nhật thông tin sự kiện hoặc thay đổi trạng thái vòng đời (`ON_SALE`, `CANCELLED`) | — |
-| `POST` | `/api/v1/admin/events/{eventId}/seat-zones` | Cấu hình khu vực ghế (tên zone, giá tiền, số hàng, số ghế/hàng) và tự động sinh ghế | — |
-| `GET` | `/api/v1/admin/orders` | Quản lý toàn bộ đơn hàng trong hệ thống | `eventId`: lọc theo sự kiện<br>`status`: lọc trạng thái<br>`page`: (default: 0)<br>`size`: (default: 10) |
+Dữ liệu trả về đi qua DTO (`dto/`), không trả trực tiếp entity, để không lộ cấu trúc bảng và các trường nội bộ.
 
-**Notes:**
-- `GET /api/v1/admin/events`: Hỗ trợ tìm kiếm theo tên, lọc theo trạng thái sự kiện và phân trang.
-- `POST /api/v1/admin/events`: Trả về `201 Created` kèm thông tin sự kiện vừa tạo. Hỗ trợ tạo kèm danh sách `zones` và `seats` ngay trong một request.
-- `PATCH /api/v1/admin/events/{eventId}`: Cập nhật thông tin sự kiện hoặc chuyển đổi trạng thái vòng đời (`ON_SALE`, `CANCELLED`).
-- `POST /api/v1/admin/events/{eventId}/seat-zones`: Nhận danh sách các zone (tên, giá tiền, danh sách ghế với `rowIndex` và `seatNumber`). Trả về sơ đồ ghế hoàn chỉnh của sự kiện.
-- `GET /api/v1/admin/orders`: Sắp xếp theo `createdAt` giảm dần. Hỗ trợ lọc theo `eventId`, theo `status` (`PENDING`, `PAID`, `CANCELLED`), hoặc kết hợp cả hai.
+### Tổ chức mã nguồn
 
----
+Mã nguồn nằm ở `src/main/java/com/example/ticket/`:
 
-# Cách chạy
+- `config/`: cấu hình chung, gồm `SecurityConfig` (quy định endpoint nào public, endpoint nào cần đăng nhập).
+- `security/`: xác thực JWT. Gồm `JwtAuthenticationFilter` (đọc và kiểm tra token), `JwtTokenProvider` (tạo và xác thực token), `CustomUserDetailsService` và `UserPrincipal` (thông tin người dùng đã xác thực).
+- `controller/`: tầng API.
+- `service/`: tầng nghiệp vụ.
+- `repository/`: truy cập dữ liệu, chia theo nghiệp vụ: `event`, `order`, `user`.
+- `entity/`: ánh xạ các bảng database.
+- `dto/`: đối tượng vào và ra của API, chia theo nghiệp vụ: `auth`, `event`, `order`, `ticket`.
+- `enums/`: các kiểu liệt kê nghiệp vụ.
+- `exceptions/`: exception nghiệp vụ và `GlobalExceptionHandler`, nơi đổi lỗi thành mã HTTP.
 
-### Clean build
+Tầng service không import `org.springframework.web` hay JPA. Quy tắc này giúp đổi công nghệ ở tầng dưới mà không phải sửa logic nghiệp vụ.
+
+## 5. Công nghệ
+
+| Thành phần | Công nghệ |
+|---|---|
+| Ngôn ngữ, framework | Java, Spring Boot 4.1.1, Spring Web, Spring Security |
+| Truy cập dữ liệu | Spring Data JPA, Hibernate |
+| Cơ sở dữ liệu | PostgreSQL 18 |
+| Migration | Flyway |
+| Xác thực | JWT (Access Token và Refresh Token) |
+| Tài liệu API | springdoc-openapi (Swagger UI), file `openapi.yaml` |
+| Đóng gói | Docker, Docker Compose |
+| CI | GitHub Actions (`.github/workflows/ci.yml`) |
+
+## 6. Mô hình dữ liệu
+
+Các bảng chính, theo thứ tự migration:
+
+- `users`: tài khoản người dùng và vai trò (`CUSTOMER`, `ADMIN`).
+- `events`: sự kiện, gồm tên, địa điểm, thời gian, trạng thái, `max_seats_per_user`, `hold_duration_minutes`.
+- `seat_zones`: khu vực ghế của một sự kiện, gồm tên, giá, duy nhất theo `(event_id, name)`.
+- `event_seats`: ghế, thuộc một zone và một event, duy nhất theo `(event_id, row_index, seat_number)`.
+- `seat_holds`: giữ ghế, có thời hạn `expires_at`, có UNIQUE INDEX chống tranh chấp.
+- `orders`, `order_items`: đơn hàng và chi tiết từng ghế trong đơn.
+- `tickets`: vé, gắn với `order_item` (mỗi item tối đa một vé).
+
+Các thay đổi schema được viết thành script đánh số trong `src/main/resources/db/migration` (V1 đến V6).
+
+## 7. Triển khai và chạy
+
+### Yêu cầu
+
+Docker Desktop. Không cần cài Java hay PostgreSQL trên máy.
+
+### Các lệnh
+
 ```bash
+# Build lại image và chạy toàn bộ (backend và PostgreSQL)
+docker compose up --build -d
+
+# Xem log backend
+docker compose logs -f backend
+
+# Dừng và xóa cả dữ liệu database
 docker compose down -v
-docker compose up --build
 ```
 
-### Không build lại
+Khi backend khởi động thành công, log có dòng `Started TicketApplication`.
+
+### Địa chỉ
+
+- Backend: `http://localhost:8080`
+- Swagger UI: `http://localhost:8080/swagger-ui.html`
+- JSON API docs: `http://localhost:8080/v3/api-docs`
+- PostgreSQL: cổng `5432`, thông tin kết nối trong `docker-compose.yml`
+
+### Quy trình build trong Docker
+
+`Dockerfile` gồm hai giai đoạn. Giai đoạn build dùng JDK để chạy `./mvnw clean package -DskipTests` và tạo file JAR. Giai đoạn chạy chỉ dùng JRE, copy JAR và chạy `java -jar app.jar`.
+
+## 8. Database migration
+
+- Flyway chạy tự động khi backend khởi động, kết nối tới container PostgreSQL.
+- Script nằm tại `src/main/resources/db/migration`, đặt tên `V<số>__<mô tả>.sql`.
+- Không sửa script đã chạy. Thay đổi mới phải thêm file `V<số tiếp theo>__...sql`, vì Flyway kiểm tra checksum và sẽ báo lỗi nếu file cũ bị đổi.
+- Migration cũng nạp dữ liệu mẫu (sự kiện và ghế) để có thể test ngay.
+
+## 9. Kiểm thử và CI
+
+### Kiểm thử
+
 ```bash
-docker compose up
+./mvnw test
 ```
 
-<br>
+Test gồm kiểm thử xác thực (`AuthSecurityTests`), kiểm thử nghiệp vụ đơn hàng (`OrderServiceTest`), kiểm thử nghiệp vụ vé (`TicketServiceTest`) và kiểm thử ứng dụng khởi động (`TicketApplicationTests`). Test khởi động ứng dụng cần PostgreSQL đang chạy.
 
-# Database migration
-- Database schema được quản lý tự động bởi Flyway
-- Migration scripts được lưu tại: `src/main/resources/db/migration`
-- Flyway chạy bên trong backend container và kết nối tới PostgreSQL container để tự động migrate schema và seed dữ liệu khởi tạo khi container khởi động.
+### CI
 
-<br>
+Workflow `.github/workflows/ci.yml` chạy khi có push và pull request vào `main`:
 
-## Tài liệu OpenAPI
-- **Swagger UI (Interactive):** `http://localhost:8080/swagger-ui/index.html` (truy cập khi server đang chạy)
-- **JSON API Docs:** `http://localhost:8080/v3/api-docs`
-- **File đặc tả tĩnh (Static Spec):** `openapi.yaml` tại thư mục gốc
+1. Khởi động PostgreSQL làm service.
+2. Build và test bằng `./mvnw clean verify`.
+3. Build Docker image.
+
+Pull request chỉ nên được merge khi CI xanh.
+
+## 10. Vấn đề dễ thấy và hướng cải tiến (Phase 2)
+
+Các điểm dưới đây là cơ sở để đánh giá và cải tiến ở Phase 2, theo thuộc tính chất lượng:
+
+- **Hiệu năng khi nhiều người cùng chọn ghế:** nhiều request giữ cùng một ghế sẽ nhận `409`. Cần đo tỉ lệ `409` và độ trễ trong kiểm thử tải.
+- **Đọc sơ đồ ghế và danh sách sự kiện:** là các truy vấn đọc nhiều nhất. Cần đo thời gian khi số sự kiện và số ghế lớn. Hướng cải tiến: cache kết quả đọc.
+- **Giải phóng hold hết hạn theo kiểu lười:** hold quá hạn chỉ được dọn khi có người giữ ghế đó lần sau, nên trạng thái ghế có thể không chính xác trong thời gian dài. Hướng cải tiến: job định kỳ hoặc tính trạng thái khi đọc.
+- **Tạo vé đồng bộ trong request thanh toán:** hiện không có cổng thanh toán thật nên chưa có độ trễ. Khi tích hợp cổng thật, việc sinh vé nên chuyển sang xử lý bất đồng bộ qua hàng đợi.
+- **Truy vấn vé:** `findPaidTickets` dùng `EntityGraph` để tránh truy vấn lặp khi lấy thông tin sự kiện. Đây là điểm để so sánh trước và sau khi tối ưu.
+
+
+

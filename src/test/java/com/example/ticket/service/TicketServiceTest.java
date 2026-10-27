@@ -3,9 +3,6 @@ package com.example.ticket.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -104,7 +101,7 @@ class TicketServiceTest {
     void getTicketById_UserOwner_Success() {
         when(orderItemRepository.findPaidTicketById(50L, 1L)).thenReturn(Optional.of(item));
 
-        TicketResponse response = ticketService.getTicketById(50L, 1L, false);
+        TicketResponse response = ticketService.getTicketById(50L, 1L);
 
         assertNotNull(response);
         assertEquals(50L, response.id());
@@ -115,17 +112,13 @@ class TicketServiceTest {
     void getTicketById_NotFound_ThrowsException() {
         when(orderItemRepository.findPaidTicketById(99L, 1L)).thenReturn(Optional.empty());
 
-        assertThrows(TicketNotFoundException.class, () -> ticketService.getTicketById(99L, 1L, false));
+        assertThrows(TicketNotFoundException.class, () -> ticketService.getTicketById(99L, 1L));
     }
 
     @Test
-    void getTicketById_Admin_Success() {
-        when(orderItemRepository.findPaidTicketByIdAdmin(50L)).thenReturn(Optional.of(item));
+    void getTicketById_NotOwner_ThrowsException() {
+        when(orderItemRepository.findPaidTicketById(50L, 2L)).thenReturn(Optional.empty());
 
-        TicketResponse response = ticketService.getTicketById(50L, 2L, true);
-
-        assertNotNull(response);
-        assertEquals(50L, response.id());
-        verify(orderItemRepository).findPaidTicketByIdAdmin(50L);
+        assertThrows(TicketNotFoundException.class, () -> ticketService.getTicketById(50L, 2L));
     }
 }
