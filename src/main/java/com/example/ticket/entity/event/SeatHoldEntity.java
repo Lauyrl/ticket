@@ -51,10 +51,10 @@ public class SeatHoldEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
-    private com.example.ticket.entity.user.UserEntity user;
+    private UserEntity user;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "seat_id", nullable = true)
+    @JoinColumn(name = "seat_id")
     private SeatEntity seat;
 
     @Enumerated(EnumType.STRING)

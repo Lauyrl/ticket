@@ -57,6 +57,13 @@ public class OrderController {
         return orderService.getMyOrders(currentUser.getId(), status, pageRequest);
     }
 
+    @PostMapping("/{orderId}/pay")
+    public OrderResponse payOrder(
+            @PathVariable Long orderId,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        return orderService.payOrder(orderId, currentUser.getId());
+    }
+
     @DeleteMapping("/{orderId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void cancelOrder(

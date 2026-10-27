@@ -53,6 +53,31 @@ public class EventEntity {
         updated_at            TIMESTAMPTZ  NOT NULL DEFAULT now()
     );
     */
+    public EventEntity(
+        String name,
+        String description,
+        String category,
+        String venue,
+        String city,
+        Instant startsAt,
+        Instant endsAt,
+        String imageUrl,
+        EventStatus status,
+        Integer maxSeatsPerUser,
+        Integer holdDurationMinutes        
+    ) {
+        this.name = name;
+        this.description = description;
+        this.category = category;
+        this.venue = venue;
+        this.city = city;
+        this.startsAt = startsAt;
+        this.endsAt = endsAt;
+        this.imageUrl = imageUrl;
+        this.status = status;
+        this.maxSeatsPerUser = maxSeatsPerUser;
+        this.holdDurationMinutes = holdDurationMinutes;
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -92,8 +117,8 @@ public class EventEntity {
     @Column(name = "hold_duration_minutes", nullable = false)
     private int holdDurationMinutes;
 
-    @Column(name = "created_by", nullable = false, insertable = false)
-    private long createdBy;
+    @Column(name = "created_by")
+    private Long createdBy;
 
     @Column(name = "created_at", nullable = false, insertable = false)
     private Instant createdAt;

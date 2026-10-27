@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.example.ticket.dto.event.EventResponse;
 import com.example.ticket.dto.event.SeatHoldResponse;
 import com.example.ticket.dto.event.SeatZoneResponse;
+import com.example.ticket.security.UserPrincipal;
 import com.example.ticket.service.EventService;
 
 import jakarta.validation.constraints.Min;
@@ -34,10 +36,11 @@ public class EventController {
         @RequestParam(required = false) Instant startsBefore,
         @RequestParam(required = false) Instant endsAfter,
         @RequestParam(required = false) Instant endsBefore,
-        @RequestParam(defaultValue = "0") @Min(0) int page
+        @RequestParam(defaultValue = "0") @Min(0) int page,
+        @RequestParam(defaultValue = "12") @Min(1) int size
     ) {
         Page<EventResponse> response = eventService.getEvents(
-            search, city, startsAfter, startsBefore, endsAfter, endsBefore, page
+            search, city, startsAfter, startsBefore, endsAfter, endsBefore, page, size
         );
         return response;
     }
@@ -48,16 +51,10 @@ public class EventController {
         return response;
     }
 
-    @GetMapping("/api/v1/events/suggest")
-    public List<EventResponse> getSuggestedEvents(@RequestParam(required = false) String search) {
-        List<EventResponse> response = eventService.getSuggestedEvents(search);
-        return response;
-    }
-
     @GetMapping("/api/v1/events/{eventId}/seats")
     public List<SeatZoneResponse> getSeatsByEvent(
         @PathVariable Long eventId,
-        @org.springframework.security.core.annotation.AuthenticationPrincipal com.example.ticket.security.UserPrincipal currentUser
+        @AuthenticationPrincipal UserPrincipal currentUser
     ) {
         Long userId = currentUser != null ? currentUser.getId() : null;
         List<SeatZoneResponse> response = eventService.getSeatsByEvent(eventId, userId);
@@ -68,7 +65,7 @@ public class EventController {
     public SeatHoldResponse holdSeat(
         @PathVariable Long eventId,
         @PathVariable Long seatId,
-        @org.springframework.security.core.annotation.AuthenticationPrincipal com.example.ticket.security.UserPrincipal currentUser
+        @AuthenticationPrincipal UserPrincipal currentUser
     ) {
         return eventService.holdSeat(eventId, seatId, currentUser.getId());
     }
@@ -78,7 +75,7 @@ public class EventController {
     public void releaseSeat(
         @PathVariable Long eventId,
         @PathVariable Long seatId,
-        @org.springframework.security.core.annotation.AuthenticationPrincipal com.example.ticket.security.UserPrincipal currentUser
+        @AuthenticationPrincipal UserPrincipal currentUser
     ) {
         eventService.releaseSeat(eventId, seatId, currentUser.getId());
     }
@@ -86,17 +83,9 @@ public class EventController {
     @GetMapping("/api/v1/events/{eventId}/holds")
     public List<SeatHoldResponse> getUserSeatHolds(
         @PathVariable Long eventId,
-        @org.springframework.security.core.annotation.AuthenticationPrincipal com.example.ticket.security.UserPrincipal currentUser
+        @AuthenticationPrincipal UserPrincipal currentUser
     ) {
         List<SeatHoldResponse> response = eventService.getUserSeatHolds(eventId, currentUser.getId());
         return response;
-    }
-
-    @GetMapping("/api/v1/holds/active")
-    public List<SeatHoldResponse> getActiveHolds(
-        @RequestParam Long eventId,
-        @org.springframework.security.core.annotation.AuthenticationPrincipal com.example.ticket.security.UserPrincipal currentUser
-    ) {
-        return eventService.getUserSeatHolds(eventId, currentUser.getId());
     }
 }

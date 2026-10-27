@@ -33,6 +33,17 @@ public class SeatEntity {
         FOREIGN KEY (zone_id, event_id) REFERENCES seat_zones(id, event_id)   -- zone must belong to the same event
     );
     */
+    public SeatEntity(
+        int rowIndex,
+        int seatNumber,
+        EventEntity event,
+        SeatZoneEntity zone
+    ) {
+        this.rowIndex = rowIndex;
+        this.seatNumber = seatNumber;
+        this.zone = zone;
+        this.event = event;
+    }
 
     @Id 
     @GeneratedValue(strategy = GenerationType.IDENTITY)

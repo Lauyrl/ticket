@@ -25,7 +25,7 @@ VALUES
     'ON_SALE',
     4,
     1,
-    1
+    NULL
 ),
 (
     'Vietnam Tech Conference 2026',
@@ -39,7 +39,7 @@ VALUES
     'UPCOMING',
     2,
     10,
-    1
+    NULL
 ),
 (
     'Hanoi Jazz Night',
@@ -53,5 +53,5 @@ VALUES
     'ON_SALE',
     2,
     10,
-    1
+    NULL
 );
