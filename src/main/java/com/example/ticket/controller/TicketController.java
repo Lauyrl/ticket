@@ -24,7 +24,6 @@ public class TicketController {
 
     private final TicketService ticketService;
 
-    // GET /api/v1/tickets/my?eventId=&status=&page=&size=
     @GetMapping("/my")
     public Page<TicketResponse> getMyTickets(
             @AuthenticationPrincipal UserPrincipal currentUser,
@@ -39,7 +38,6 @@ public class TicketController {
         return ticketService.getMyTickets(currentUser.getId(), eventId, status, pageable);
     }
 
-    // GET /api/v1/tickets/{ticketId}
     @GetMapping("/{ticketId}")
     public TicketResponse getMyTicketById(
             @AuthenticationPrincipal UserPrincipal currentUser,
