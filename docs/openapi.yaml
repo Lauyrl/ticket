@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Event Ticketing Platform API
   description: |
-    Đặc tả RESTful API cho Hệ thống Đặt vé Sự kiện Trực tuyến (Event Ticketing Platform).
+    Đặc tả RESTful API cho Hệ thống Đặt vé Sự kiện Trực tuyến.
     Bao gồm 23 endpoints tập trung vào các luồng nghiệp vụ cốt lõi:
     - **1. Auth & Users (5 endpoints):** Đăng ký, đăng nhập, refresh token, logout, thông tin người dùng hiện tại.
     - **2. Events (2 endpoints):** Tìm kiếm phân trang sự kiện công khai và xem chi tiết sự kiện.
@@ -31,9 +31,7 @@ tags:
     description: Nghiệp vụ quản trị hệ thống (yêu cầu quyền ADMIN)
 
 paths:
-  # ---------------------------------------------------------------------------
   # 1. AUTH & USERS (5 Endpoints)
-  # ---------------------------------------------------------------------------
   /api/v1/auth/register:
     post:
       tags:
@@ -137,9 +135,7 @@ paths:
         '401':
           description: Chưa xác thực
 
-  # ---------------------------------------------------------------------------
   # 2. EVENTS (2 Endpoints)
-  # ---------------------------------------------------------------------------
   /api/v1/events:
     get:
       tags:
@@ -216,9 +212,7 @@ paths:
         '404':
           description: Sự kiện không tồn tại
 
-  # ---------------------------------------------------------------------------
   # 3. SEATS & SEAT HOLDS (4 Endpoints)
-  # ---------------------------------------------------------------------------
   /api/v1/events/{eventId}/seats:
     get:
       tags:
@@ -334,9 +328,7 @@ paths:
         '401':
           description: Chưa xác thực
 
-  # ---------------------------------------------------------------------------
   # 4. ORDERS & CHECKOUT (5 Endpoints)
-  # ---------------------------------------------------------------------------
   /api/v1/orders:
     post:
       tags:
@@ -483,9 +475,7 @@ paths:
         '404':
           description: Đơn hàng không tồn tại
 
-  # ---------------------------------------------------------------------------
   # 5. TICKETS (2 Endpoints)
-  # ---------------------------------------------------------------------------
   /api/v1/tickets/my:
     get:
       tags:
@@ -559,9 +549,7 @@ paths:
         '404':
           description: Vé không tồn tại
 
-  # ---------------------------------------------------------------------------
   # 6. ADMIN MANAGEMENT (5 Endpoints)
-  # ---------------------------------------------------------------------------
   /api/v1/admin/events:
     get:
       tags:
@@ -763,9 +751,7 @@ paths:
         '403':
           description: Không đủ quyền (yêu cầu ROLE_ADMIN)
 
-# ---------------------------------------------------------------------------
 # COMPONENTS & SCHEMAS
-# ---------------------------------------------------------------------------
 components:
   securitySchemes:
     BearerAuth:
