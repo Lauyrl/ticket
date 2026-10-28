@@ -22,17 +22,6 @@ import lombok.Setter;
 @Setter 
 @NoArgsConstructor 
 public class EventEntity {
-    /*
-    @Column()
-        name: Exact column name in DB
-        length: Maximum size of a string column (default is 255)
-        nullable: Whether the column can contain NULL values (default is true)
-        unique: Ensures that all values in this column are unique
-        precision: Defines the total number of digits for numeric columns
-        scale: Defines the number of digits to the right of the decimal point
-        insertable: Determines whether the column is included in SQL INSERT statements
-        updatable: Determines whether the column is included in SQL UPDATE statements
-    */
     /*  
     CREATE TABLE events (
         id                    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
