@@ -27,7 +27,7 @@ Bảng dưới đây tóm tắt các API endpoints của hệ thống. Đặc t�
 | Auth | `GET /api/v1/auth/me` | Authenticated |
 | Events | `GET /api/v1/events` (`search`, `city`, `startsAfter`, `startsBefore`, `page`, `size` mặc định 12) | Public |
 | Events | `GET /api/v1/events/{eventId}` | Public |
-| Seats | `GET /api/v1/events/{eventId}/seats` | Public / Authenticated |
+| Seats | `GET /api/v1/events/{eventId}/seats` | Public |
 | Seats | `POST` và `DELETE /api/v1/events/{eventId}/seats/{seatId}/hold` | Authenticated |
 | Seats | `GET /api/v1/events/{eventId}/holds` | Authenticated |
 | Orders | `POST /api/v1/orders`, `POST /api/v1/orders/{orderId}/pay` | Authenticated |
@@ -43,31 +43,59 @@ Bảng dưới đây tóm tắt các API endpoints của hệ thống. Đặc t�
 ## 3. Kiến trúc
 
 Hệ thống theo kiến trúc phân tầng, mỗi tầng chỉ tương tác với các tầng liền kề nó. Cụ thể các tầng của hệ thống như sau:
+```mermaid
+flowchart LR
+    Client([HTTP client]) --> Security
+    subgraph App["Ticket service"]
+        Security["<b>Security</b>"]
+        Controller["<b>Controller</b>"]
+        Service["<b>Service</b>"]
+        Persistence["<b>Persistence</b>"]
 
-```
-Client
-  -> Security (JwtAuthenticationFilter: xác thực token, đặt người dùng vào SecurityContext)
-  -> Controller (nhận request, khai báo đường dẫn, chuyển cho service)
-  -> Service (quy tắc nghiệp vụ, không import Spring Web hay JPA)
-  -> Repository (Spring Data JPA, truy vấn database)
-  -> PostgreSQL (schema do Flyway quản lý)
+        Security --> Controller --> Service --> Persistence
+    end
+    Persistence --> DB[("PostgreSQL")]
 ```
 
-Dữ liệu trả về được đi qua DTO (`dto/`), không trả trực tiếp để không lộ cấu trúc bảng và các trường nội bộ.
+| Tầng | Trách nghiệm |
+|---|---|
+| `Security` | JwtAuthenticationFilter: xác thực token, đặt người dùng vào SecurityContext |
+| `Controller` | nhận request, khai báo đường dẫn, chuyển cho service. Dữ liệu trả về được đi qua DTO (`dto/`), không trả trực tiếp để không lộ cấu trúc bảng và các trường nội bộ. |
+| `Service` | quy tắc nghiệp vụ, không import Spring Web hay JPA |
+| `Persistence` | JPA entity, repository (Spring Data JPA), truy vấn database |
+| `PostgreSQL` | lưu trữ dữ liệu, quản lý các bảng và quan hệ |
 
 ### Tổ chức mã nguồn
 
 Mã nguồn chính của dự án nằm trong `src/main/java/com/example/ticket/`, gồm các thư mục sau:
 
-- `config/`: cấu hình chung, gồm `SecurityConfig` (quy định endpoint nào public, endpoint nào cần đăng nhập).
-- `security/`: xác thực JWT. Gồm `JwtAuthenticationFilter` (đọc và kiểm tra token), `JwtTokenProvider` (tạo và xác thực token), `CustomUserDetailsService` và `UserPrincipal` (thông tin người dùng đã xác thực).
-- `controller/`: tầng API.
-- `service/`: tầng nghiệp vụ.
-- `repository/`: truy cập dữ liệu, chia theo nghiệp vụ: `event`, `order`, `user`.
-- `entity/`: ánh xạ các bảng database.
-- `dto/`: đối tượng vào và ra của API, chia theo nghiệp vụ: `auth`, `event`, `order`, `ticket`.
-- `enums/`: các kiểu liệt kê nghiệp vụ.
-- `exceptions/`: exception nghiệp vụ và `GlobalExceptionHandler`, nơi đổi lỗi thành mã HTTP.
+```
+src/main/java/com/example/ticket/
+├── config/                      # cấu hình chung
+│   └── SecurityConfig.java             # quy định endpoint nào public, endpoint nào cần đăng nhập
+├── security/                    # xác thực JWT
+│   ├── JwtAuthenticationFilter.java    # đọc và kiểm tra token
+│   ├── JwtTokenProvider.java           # tạo và xác thực token
+│   ├── CustomUserDetailsService.java   # lấy người dùng từ database theo email hoặc id, trả về UserDetails
+│   └── UserPrincipal.java              # thông tin người dùng đã xác thực
+├── controller/                  # tầng API
+├── service/                     # tầng nghiệp vụ
+├── repository/                  # truy cập dữ liệu, chia theo nghiệp vụ
+│   ├── event/
+│   ├── order/
+│   ├── ticket/
+│   └── user/
+├── entity/                      # ánh xạ các bảng database
+├── dto/                         # đối tượng vào/ra của API, chia theo nghiệp vụ 
+│   ├── auth/
+│   ├── event/
+│   ├── order/
+│   └── ticket/
+├── enums/                       # các kiểu liệt kê nghiệp vụ
+└── exceptions/                  # exception nghiệp vụ, exception handler
+    ├── (các exception nghiệp vụ)
+    └── GlobalExceptionHandler.java     # xử lý việc đổi lỗi thành mã HTTP, được annotate là @RestControllerAdvice
+```
 
 ## 4. Công nghệ
 
@@ -82,10 +110,11 @@ Mã nguồn chính của dự án nằm trong `src/main/java/com/example/ticket/
 | Đóng gói | Docker, Docker Compose |
 | CI | GitHub Actions (`.github/workflows/ci.yml`) |
 
-## 5. Mô hình dữ liệu
+## 5. Database 
+### Database ERD
+![Database ERD](docs/erd.svg)
 
-Các bảng chính:
-
+### Ghi chú về các bảng chính
 - `users`: tài khoản người dùng, có hai role là `CUSTOMER` và `ADMIN`.
 - `events`: thông tin sự kiện, gồm tên, địa điểm, thời gian, trạng thái, `max_seats_per_user`, `hold_duration_minutes`.
 - `seat_zones`: khu vực ghế của một sự kiện, gồm tên, giá, duy nhất theo `(event_id, name)`.
@@ -94,7 +123,11 @@ Các bảng chính:
 - `orders`, `order_items`: đơn hàng và chi tiết từng ghế trong đơn.
 - `tickets`: vé, gắn với `order_item` (mỗi item tối đa một vé).
 
-Các thay đổi schema trong quá trình phát triển dự án được viết thành script đánh số trong `src/main/resources/db/migration`.
+### Database migration
+- Hệ thống quản lý schema bằng Flyway, chạy tự động khi backend khởi động và kết nối tới container PostgreSQL.
+- Script nằm tại `src/main/resources/db/migration`, format `V<số>__<mô tả>.sql`.
+- Không sửa script đã chạy. Nếu muốn thay đổi thì phải thêm file `V<số tiếp theo>__...sql`, vì Flyway kiểm tra checksum và sẽ báo lỗi nếu file cũ bị đổi.
+- Migration cũng nạp dữ liệu mẫu (sự kiện và ghế) để có thể test ngay.
 
 ## 6. Triển khai và chạy
 
@@ -128,14 +161,7 @@ Khi backend khởi động thành công, log có dòng `Started TicketApplicatio
 
 `Dockerfile` gồm hai giai đoạn: Giai đoạn build dùng JDK để chạy `./mvnw clean package -DskipTests` và tạo file JAR. Giai đoạn chạy chỉ dùng JRE, copy JAR và chạy `java -jar app.jar`.
 
-## 7. Database migration
-
-- Hệ thống sử dụng Flyway, chạy tự động khi backend khởi động và kết nối tới container PostgreSQL.
-- Script nằm tại `src/main/resources/db/migration`, format `V<số>__<mô tả>.sql`.
-- Không sửa script đã chạy. Nếu muốn thay đổi thì phải thêm file `V<số tiếp theo>__...sql`, vì Flyway kiểm tra checksum và sẽ báo lỗi nếu file cũ bị đổi.
-- Migration cũng nạp dữ liệu mẫu (sự kiện và ghế) để có thể test ngay.
-
-## 8. Kiểm thử và CI
+## 7. Kiểm thử và CI
 
 ### Kiểm thử
 
@@ -155,7 +181,7 @@ Workflow `.github/workflows/ci.yml` chạy khi có push và pull request vào `m
 
 Pull request chỉ nên được merge khi CI xanh.
 
-## 9. Vấn đề để cải tiến (Phase 2)
+## 8. Vấn đề để cải tiến (Phase 2)
 
 Nhóm cải tiến ở Phase 2 có thể cân nhắc các vấn đề sau để cải tiến hệ thống:
 
