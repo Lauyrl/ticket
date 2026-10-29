@@ -169,7 +169,9 @@ Khi backend khởi động thành công, log có dòng `Started TicketApplicatio
 ./mvnw test
 ```
 
-Test gồm kiểm thử xác thực (`AuthSecurityTests`), kiểm thử nghiệp vụ đơn hàng (`OrderServiceTest`), kiểm thử nghiệp vụ vé (`TicketServiceTest`) và kiểm thử khởi động ứng dụng (`TicketApplicationTests`). Test khởi động ứng dụng cần PostgreSQL đang chạy.
+Test kiểm thử hệ thống gồm kiểm thử xác thực (`AuthSecurityTests`), kiểm thử nghiệp vụ đơn hàng (`OrderServiceTest`), kiểm thử nghiệp vụ vé (`TicketServiceTest`) và kiểm thử khởi động ứng dụng (`TicketApplicationTests`). Test khởi động ứng dụng cần PostgreSQL đang chạy.
+
+Test kiểm thử tải được thực hiện trên Kaggle sử dụng Ngôn ngữ Python 3 và sử dụng accelerator nvidiaTeslaT4 với các kịch bản kiểm thử cho 100 VU, 500 VU và 1000 VU. Kết quả kiểm thử nằm trong thư mục `test-kaggle`.
 
 ### CI
 
