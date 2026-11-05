@@ -67,6 +67,7 @@ public class SecurityConfig {
 
                 // OpenAPI / Swagger endpoints
                 .requestMatchers(
+                    "/openapi.yaml",
                     "/swagger-ui/**",
                     "/v3/api-docs/**",
                     "/swagger-ui.html"

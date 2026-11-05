@@ -35,10 +35,10 @@ Bảng dưới đây tóm tắt các API endpoints của hệ thống. Đặc t�
 | Orders | `GET` và `DELETE /api/v1/orders/{orderId}` | Authenticated |
 | Tickets | `GET /api/v1/tickets/my` (`eventId`, `status` là `VALID` hoặc `USED`, `page`, `size` mặc định 10) | Authenticated |
 | Tickets | `GET /api/v1/tickets/{ticketId}` | Authenticated, chỉ chủ vé |
-| Admin | `GET` và `POST /api/v1/admin/events` | ADMIN |
-| Admin | `PATCH /api/v1/admin/events/{eventId}` | ADMIN |
-| Admin | `POST /api/v1/admin/events/{eventId}/seat-zones` | ADMIN |
-| Admin | `GET /api/v1/admin/orders` (`eventId`, `status`, `page`, `size` mặc định 10) | ADMIN |
+| Admin | `GET` và `POST /api/v1/admin/events` | Admin |
+| Admin | `PATCH /api/v1/admin/events/{eventId}` | Admin |
+| Admin | `POST /api/v1/admin/events/{eventId}/seat-zones` | Admin |
+| Admin | `GET /api/v1/admin/orders` (`eventId`, `status`, `page`, `size` mặc định 10) | Admin |
 
 ## 3. Kiến trúc
 
@@ -154,7 +154,8 @@ Khi backend khởi động thành công, log có dòng `Started TicketApplicatio
 
 - Backend: `http://localhost:8080`
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
-- JSON API docs: `http://localhost:8080/v3/api-docs`
+- YAML API docs: `http://localhost:8080/openapi.yaml`
+- JSON API docs (generate bởi Springdoc): `http://localhost:8080/v3/api-docs`
 - PostgreSQL: cổng `5432`, thông tin kết nối trong `docker-compose.yml`
 
 ### Quy trình build trong Docker
